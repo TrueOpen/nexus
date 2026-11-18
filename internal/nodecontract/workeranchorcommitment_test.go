@@ -2,9 +2,6 @@ package nodecontract
 
 import (
 	"bytes"
-	"encoding/hex"
-	"os"
-	"path/filepath"
 	"testing"
 
 	sharedv1 "github.com/TrueOpen/nexus/gen/trueopen/shared/v1"
@@ -12,46 +9,18 @@ import (
 	"github.com/TrueOpen/nexus/internal/wirefixture"
 )
 
-// wireAnchorCommitmentVector is the wire conformance vector of the anchor commitment, relative to
-// the wire module root.
-const wireAnchorCommitmentVector = "testdata/v1/task/worker_anchor_commitment_v1.json"
-
-// anchorCommitmentVector is the input of that wire vector and its digest, the value Cortex
-// produces for the same input. It is kept here as well because the wire revision pinned in go.mod
-// may predate the vector file; when the pinned wire carries the file,
-// TestWorkerAnchorCommitmentV1Vector also checks this copy against it.
-func anchorCommitmentVector() (WorkerAnchorCommitmentV1, string) {
-	return WorkerAnchorCommitmentV1{
-		ChainID:               "trueopen-localnet-1",
-		TaskID:                bytes.Repeat([]byte{0x11}, 32),
-		AcceptedTaskHash:      bytes.Repeat([]byte{0x22}, 32),
-		WorkerOperatorAddress: "trueopen15zs69gay5kn2029f4246etdw47ctrv4ns6facc",
-		EvidenceSchemaHash:    bytes.Repeat([]byte{0x33}, 32),
-		AnchorCommitHash:      bytes.Repeat([]byte{0x44}, 32),
-		AnchorCommitSizeBytes: 123456,
-	}, "88373eed3d4b9d71e658c40a49026da66c03c83604f4eb0ea78ec04dc5620a14"
-}
-
-// TestWorkerAnchorCommitmentV1Vector pins the anchor commitment digest to the shared conformance
-// vector, so Nexus, Cortex and wire agree on one value.
-func TestWorkerAnchorCommitmentV1Vector(t *testing.T) {
-	input, want := anchorCommitmentVector()
-	digest, err := input.Digest()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := hex.EncodeToString(digest[:]); got != want {
-		t.Fatalf("digest = %s, want %s", got, want)
-	}
-
-	if _, err := os.Stat(filepath.Join(wirefixture.Dir(t), wireAnchorCommitmentVector)); err != nil {
-		t.Logf("the pinned wire has no %s; checked the local copy of the vector only", wireAnchorCommitmentVector)
-		return
-	}
+// anchorCommitmentVector reads the anchor commitment input and its digest from the wire conformance
+// vector of the wire release pinned in go.mod. There is no local copy: a pinned wire without the
+// vector fails the tests that use it instead of silently skipping the cross-check.
+func anchorCommitmentVector(t *testing.T) (WorkerAnchorCommitmentV1, wirefixture.Vector) {
+	t.Helper()
 	v := wirefixture.Load(t, "task/worker_anchor_commitment_v1.json").Vector(t, "worker_anchor_commitment_v1", 0)
 	v.CheckPreimage(t)
 	f := func(name string) wirefixture.Field { return v.Field(t, name) }
-	fromWire, err := WorkerAnchorCommitmentV1{
+	if got := uint32(f("schema_version").Uint64(t)); got != WorkerAnchorCommitmentSchemaV1 {
+		t.Fatalf("wire vector schema_version = %d, want %d", got, WorkerAnchorCommitmentSchemaV1)
+	}
+	return WorkerAnchorCommitmentV1{
 		ChainID:               f("chain_id").UTF8,
 		TaskID:                f("task_id").Bytes(t),
 		AcceptedTaskHash:      f("accepted_task_hash").Bytes(t),
@@ -59,21 +28,25 @@ func TestWorkerAnchorCommitmentV1Vector(t *testing.T) {
 		EvidenceSchemaHash:    f("evidence_schema_hash").Bytes(t),
 		AnchorCommitHash:      f("anchor_commit_hash").Bytes(t),
 		AnchorCommitSizeBytes: f("anchor_commit_size_bytes").Uint64(t),
-	}.Digest()
+	}, v
+}
+
+// TestWorkerAnchorCommitmentV1Vector pins the anchor commitment digest to the shared conformance
+// vector, so Nexus, Cortex and wire agree on one value.
+func TestWorkerAnchorCommitmentV1Vector(t *testing.T) {
+	input, v := anchorCommitmentVector(t)
+	digest, err := input.Digest()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if fromWire != v.Digest(t) {
-		t.Fatalf("digest of the wire vector's fields = %x, want %s", fromWire, v.DigestHex)
-	}
-	if v.DigestHex != want || uint32(f("schema_version").Uint64(t)) != WorkerAnchorCommitmentSchemaV1 {
-		t.Fatalf("the local copy differs from the wire vector: digest %s, schema_version %d", v.DigestHex, f("schema_version").Uint64(t))
+	if digest != v.Digest(t) {
+		t.Fatalf("digest of the wire vector's fields = %x, want %s", digest, v.DigestHex)
 	}
 }
 
 // Every field of the anchor commitment enters the digest, and malformed inputs produce none.
 func TestWorkerAnchorCommitmentV1BindsEveryField(t *testing.T) {
-	base, _ := anchorCommitmentVector()
+	base, _ := anchorCommitmentVector(t)
 	want, err := base.Digest()
 	if err != nil {
 		t.Fatal(err)
