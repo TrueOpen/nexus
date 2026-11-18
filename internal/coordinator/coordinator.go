@@ -241,9 +241,9 @@ type InferReceiptQuerier interface {
 	QueryInferReceipt(context.Context, string) (chaincli.AcceptedInferReceipt, error)
 }
 
-// ChallengeQuerier reads the chain's verification round limit and a task's challenge window.
+// ChallengeQuerier reads a task's frozen verification round limit and its challenge window.
 type ChallengeQuerier interface {
-	QueryMaxVerifyRound(context.Context) (uint32, error)
+	QueryTaskMaxVerifyRound(context.Context, string) (uint32, error)
 	QueryTaskStage(context.Context, string) (chaincli.TaskStage, error)
 }
 
@@ -1150,7 +1150,8 @@ func (c *Coordinator) TaskEvents(_ context.Context, sessionID, taskID string, fr
 // chain. The opener holds no evidence: the round's Verifiers fetch the task data
 // themselves, so the plan lists no required evidence and the challenge kind does not change it.
 //
-// A round can open while the task is not final, the round limit allows a second round, and the
+// A round can open while the task is not final, the round limit the task froze when it was
+// accepted allows a second round (current parameters never stand in for it), and the
 // challenge window is the task's next deadline without the chain height having passed it. The
 // Keeper reports that window through TaskStage only after round 1 has closed and while no round
 // is open.
@@ -1184,12 +1185,6 @@ func (c *Coordinator) PrepareChallenge(ctx context.Context, sessionID, taskID, _
 	if c.challenge == nil {
 		return types.ChallengePlan{}, fmt.Errorf("%w: challenge query is not configured", types.ErrChainStateUnavailable)
 	}
-	paramsCtx, cancelParams := context.WithTimeout(ctx, reconcileQueryTimeout)
-	maxVerifyRound, err := c.challenge.QueryMaxVerifyRound(paramsCtx)
-	cancelParams()
-	if err != nil {
-		return types.ChallengePlan{}, fmt.Errorf("%w: query challenge params: %v", types.ErrChainStateUnavailable, err)
-	}
 	stageCtx, cancelStage := context.WithTimeout(ctx, reconcileQueryTimeout)
 	stage, err := c.challenge.QueryTaskStage(stageCtx, taskID)
 	cancelStage()
@@ -1205,9 +1200,19 @@ func (c *Coordinator) PrepareChallenge(ctx context.Context, sessionID, taskID, _
 	fsm.mu.Unlock()
 	closeHeight := stage.ChallengeCloseHeight()
 	open := status == "PENDING" &&
-		maxVerifyRound > 1 &&
 		closeHeight != 0 &&
 		height <= closeHeight
+	if open {
+		// Only a task inside its challenge window asks for its frozen round limit: a final or
+		// compacted task may no longer have frozen parameters and is simply not challengeable.
+		paramsCtx, cancelParams := context.WithTimeout(ctx, reconcileQueryTimeout)
+		maxVerifyRound, err := c.challenge.QueryTaskMaxVerifyRound(paramsCtx, taskID)
+		cancelParams()
+		if err != nil {
+			return types.ChallengePlan{}, fmt.Errorf("%w: query task frozen params: %v", types.ErrChainStateUnavailable, err)
+		}
+		open = maxVerifyRound > 1
+	}
 	return types.ChallengePlan{
 		ChallengeOpen:        open,
 		ChallengeCloseHeight: closeHeight,

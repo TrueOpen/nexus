@@ -100,8 +100,9 @@ type Client interface {
 	QueryProfile(ctx context.Context, modelID string, profileVersion uint32) (ProfileState, error)
 	// QueryEvidenceCleanup reads whether the chain has started compacting a task.
 	QueryEvidenceCleanup(ctx context.Context, taskID string) (EvidenceCleanupStatus, error)
-	// QueryMaxVerifyRound reads task params challenge.max_verify_round.
-	QueryMaxVerifyRound(ctx context.Context) (uint32, error)
+	// QueryTaskMaxVerifyRound reads challenge.max_verify_round from the task's frozen parameters
+	// (task.v1.Query/TaskFrozenParams); returns ErrNotFound when the task row is gone.
+	QueryTaskMaxVerifyRound(ctx context.Context, taskID string) (uint32, error)
 	// QueryOutputStreamLimits reads task params evidence.max_output_mmr_leaves and
 	// evidence.min_output_stream_frame_bytes.
 	QueryOutputStreamLimits(ctx context.Context) (OutputStreamLimits, error)
@@ -249,8 +250,8 @@ func (c *stubClient) QueryTaskBuilders(_ context.Context, key TaskKey) (TaskBuil
 	return TaskBuilderSelectionState{TaskID: key.TaskID}, ErrNotFound
 }
 
-// QueryMaxVerifyRound has no chain to ask in stub mode; callers fail closed.
-func (c *stubClient) QueryMaxVerifyRound(context.Context) (uint32, error) {
+// QueryTaskMaxVerifyRound has no chain to ask in stub mode; callers fail closed.
+func (c *stubClient) QueryTaskMaxVerifyRound(context.Context, string) (uint32, error) {
 	return 0, ErrNotFound
 }
 

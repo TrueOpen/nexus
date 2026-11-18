@@ -200,6 +200,55 @@ func TestPrepareChallengeNeverReopensBelowObservedHeight(t *testing.T) {
 	}
 }
 
+// The round limit comes from the task's own frozen parameters, asked only while the task is
+// inside its challenge window: a final, compacted or out-of-window task is not challengeable
+// and must not turn into an error because its frozen parameters are gone.
+func TestPrepareChallengeReadsFrozenRoundLimitOnlyInsideTheWindow(t *testing.T) {
+	facts := newChallengeFacts(99, "PENDING")
+	c, _ := newTestCoordinator(t, WithHeightQuerier(facts), WithTaskQuerier(facts))
+	if err := trackTestOrder(c, testPlaceholderOrder("session-1", "task-1")); err != nil {
+		t.Fatal(err)
+	}
+	plan, err := c.PrepareChallenge(context.Background(), "session-1", "task-1", "VERDICT_FRAUD_PROOF")
+	if err != nil || !plan.ChallengeOpen {
+		t.Fatalf("plan=%+v err=%v; want open", plan, err)
+	}
+	if facts.paramsCalls != 1 || facts.paramsTaskID != "task-1" {
+		t.Fatalf("frozen params calls = %d for %q; want 1 for task-1", facts.paramsCalls, facts.paramsTaskID)
+	}
+
+	tests := []struct {
+		name      string
+		configure func(*chainFactsFake)
+	}{
+		{name: "final", configure: func(f *chainFactsFake) {
+			task := f.tasks[taskKey("session-1", "task-1")]
+			task.Settlement.FinalityStatus = "FINAL"
+			f.tasks[taskKey("session-1", "task-1")] = task
+		}},
+		{name: "window closed", configure: func(f *chainFactsFake) { f.height = 101 }},
+		{name: "no challenge window", configure: func(f *chainFactsFake) { f.stage = chaincli.TaskStage{FinalityStatus: "PENDING"} }},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			facts := newChallengeFacts(99, "PENDING")
+			facts.paramsErr = chaincli.ErrNotFound // a compacted task has no frozen parameters
+			test.configure(facts)
+			c, _ := newTestCoordinator(t, WithHeightQuerier(facts), WithTaskQuerier(facts))
+			if err := trackTestOrder(c, testPlaceholderOrder("session-1", "task-1")); err != nil {
+				t.Fatal(err)
+			}
+			plan, err := c.PrepareChallenge(context.Background(), "session-1", "task-1", "VERDICT_FRAUD_PROOF")
+			if err != nil {
+				t.Fatalf("error=%v; want a closed plan", err)
+			}
+			if plan.ChallengeOpen || facts.paramsCalls != 0 {
+				t.Fatalf("plan=%+v, frozen params calls = %d; want closed without asking", plan, facts.paramsCalls)
+			}
+		})
+	}
+}
+
 // newChallengeFacts is a task whose round 1 has closed with a challenge window up to 100, as the
 // chain reports it: finality from QueryTask, the window from TaskStage.
 func newChallengeFacts(height uint64, status string) *chainFactsFake {
@@ -231,7 +280,8 @@ func TestPrepareChallengeFailsClosedWhenChainFactsUnavailable(t *testing.T) {
 			task.Settlement.FinalityStatus = ""
 			f.tasks[taskKey("session-1", "task-1")] = task
 		}},
-		{name: "challenge params", configure: func(f *chainFactsFake) { f.paramsErr = errors.New("params unavailable") }},
+		{name: "task frozen params", configure: func(f *chainFactsFake) { f.paramsErr = errors.New("params unavailable") }},
+		{name: "task frozen params not found", configure: func(f *chainFactsFake) { f.paramsErr = chaincli.ErrNotFound }},
 		{name: "task stage", configure: func(f *chainFactsFake) { f.stageErr = errors.New("stage unavailable") }},
 	}
 	for _, test := range tests {
