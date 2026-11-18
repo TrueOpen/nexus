@@ -390,16 +390,23 @@ func (c *client) QueryEvidenceCleanup(ctx context.Context, taskID string) (Evide
 	}
 }
 
-// QueryMaxVerifyRound reads task params challenge.max_verify_round: the highest verification
-// round a task may reach, so a challenge round can open only while max_closed_round is below it.
-func (c *client) QueryMaxVerifyRound(ctx context.Context) (uint32, error) {
-	resp, err := c.taskQuery.Params(ctx, connect.NewRequest(&taskv1.QueryTaskParamsRequest{}))
+// QueryTaskMaxVerifyRound reads challenge.max_verify_round from the parameter version the task
+// bound when it was accepted (task.v1.Query/TaskFrozenParams): the highest verification round
+// this task may reach, so a challenge round can open only while max_closed_round is below it.
+// Current parameters can differ from the task's and are never substituted. A task the chain no
+// longer keeps (compacted or unknown) returns ErrNotFound.
+func (c *client) QueryTaskMaxVerifyRound(ctx context.Context, taskID string) (uint32, error) {
+	id, err := nodecontract.Hash32Bytes("task_id", taskID)
 	if err != nil {
-		return 0, applicationQueryError("task params", err)
+		return 0, fmt.Errorf("query task frozen params task=%q: %w", taskID, err)
+	}
+	resp, err := c.taskQuery.TaskFrozenParams(ctx, connect.NewRequest(&taskv1.QueryTaskFrozenParamsRequest{TaskId: id}))
+	if err != nil {
+		return 0, applicationQueryError("task frozen params", err)
 	}
 	limit := resp.Msg.GetParams().GetChallenge().GetMaxVerifyRound()
 	if limit == 0 {
-		return 0, fmt.Errorf("query task params: challenge.max_verify_round is zero")
+		return 0, fmt.Errorf("query task frozen params: challenge.max_verify_round is zero")
 	}
 	return limit, nil
 }

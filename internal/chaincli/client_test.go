@@ -1122,22 +1122,6 @@ func TestQueryVerifyCommitAndResultReceipt(t *testing.T) {
 	}
 }
 
-func TestQueryMaxVerifyRoundReadsTaskParams(t *testing.T) {
-	params := func(limit uint32) *taskv1.QueryTaskParamsResponse {
-		return &taskv1.QueryTaskParamsResponse{Params: &taskv1.TaskParamsV1{
-			Challenge: &taskv1.ChallengeParamsV1{MaxVerifyRound: limit},
-		}}
-	}
-	c := &client{taskQuery: &recordTaskQuery{params: params(2)}}
-	if got, err := c.QueryMaxVerifyRound(context.Background()); err != nil || got != 2 {
-		t.Fatalf("max verify round = %d, %v", got, err)
-	}
-	c = &client{taskQuery: &recordTaskQuery{params: params(0)}}
-	if _, err := c.QueryMaxVerifyRound(context.Background()); err == nil {
-		t.Fatal("zero max_verify_round accepted")
-	}
-}
-
 func TestQueryOutputStreamLimitsReadsTaskParams(t *testing.T) {
 	params := func(leaves uint64, frame uint32) *taskv1.QueryTaskParamsResponse {
 		return &taskv1.QueryTaskParamsResponse{Params: &taskv1.TaskParamsV1{
