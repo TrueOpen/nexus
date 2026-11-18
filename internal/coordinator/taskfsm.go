@@ -1684,7 +1684,8 @@ func (f *taskFSM) trySettle() {
 	if !allowed {
 		f.log.Debug("task ready to settle; waiting for the height this Builder may submit at",
 			"task_id", f.taskID, "rank", rank, "height", f.observedHeight,
-			"reveal_deadline", f.deadlines.Reveal, "grace_blocks", f.settleGraceBlocks)
+			"reveal_deadline", f.deadlines.Reveal, "commit_deadline", f.deadlines.Commit,
+			"grace_blocks", f.settleGraceBlocks)
 		return
 	}
 	if permissionless {
@@ -1703,16 +1704,16 @@ func (f *taskFSM) trySettle() {
 
 // settleSubmissionAllowed reports whether the chain would accept this node's MsgSettleTask from
 // the submitter schedule, with g = settlement_builder_grace_blocks and k = number of Builders in
-// the frozen selection:
+// the frozen selection, and anchor = settleScheduleAnchorLocked():
 //
-//	height <= reveal + g                   rank 1
-//	reveal + (i-1)·g < height <= reveal + i·g   rank i
-//	height > reveal + k·g                  anyone
+//	height <= anchor + g                   rank 1
+//	anchor + (i-1)·g < height <= anchor + i·g   rank i
+//	height > anchor + k·g                  anyone
 //
 // The schedule has no upper bound: settling is open until the task is settled. Whether the task
 // can be settled at all is settleStage's part.
 //
-// The schedule counts from the reveal deadline while settling opens only after the challenge
+// The schedule counts from the anchor while settling opens only after the challenge
 // window, so under current parameters every settlement falls in the phase where anyone may
 // submit; trySettle staggers the Builders there (settlePermissionlessTurnLocked).
 //
@@ -1722,7 +1723,7 @@ func (f *taskFSM) trySettle() {
 // a submission in the last block of this slot would execute in the next slot and be
 // rejected as "submitter is not the Builder of the current slot".
 //
-// If any fact is missing (reveal deadline, grace blocks, Builder count unknown), return false:
+// If any fact is missing (schedule anchor, grace blocks, Builder count unknown), return false:
 // never guess the window. Caller must hold the lock.
 func (f *taskFSM) settleSubmissionAllowed(rank int) (allowed bool, permissionless bool) {
 	builders := uint64(len(f.settleSelection.SelectedBuilders))
@@ -1760,21 +1761,42 @@ func (f *taskFSM) settlePermissionlessTurnLocked(rank int) bool {
 }
 
 // settleSlotAt is the chain's settlement submitter schedule at a height: the 0-based rank whose
-// slot it is, or permissionless once every slot has passed. ok is false while the reveal
-// deadline, grace blocks or Builder count is unknown. Caller must hold the lock.
+// slot it is, or permissionless once every slot has passed. ok is false while the schedule
+// anchor, grace blocks or Builder count is unknown. Caller must hold the lock.
 func (f *taskFSM) settleSlotAt(height uint64) (slot uint64, permissionless bool, ok bool) {
 	builders := uint64(len(f.settleSelection.SelectedBuilders))
-	if builders == 0 || f.settleGraceBlocks == 0 || f.deadlines.Reveal <= 0 {
+	anchor, known := f.settleScheduleAnchorLocked()
+	if builders == 0 || f.settleGraceBlocks == 0 || !known {
 		return 0, false, false
 	}
-	reveal, grace := uint64(f.deadlines.Reveal), f.settleGraceBlocks
-	if height > reveal+builders*grace {
+	grace := f.settleGraceBlocks
+	if height > anchor+builders*grace {
 		return 0, true, true
 	}
-	if height > reveal {
-		slot = (height - reveal - 1) / grace
+	if height > anchor {
+		slot = (height - anchor - 1) / grace
 	}
 	return slot, false, true
+}
+
+// settleScheduleAnchorLocked is the height the chain counts the settlement submitter schedule
+// from: the round 1 reveal deadline, or the round 1 commit deadline when that round closed at
+// its commit deadline with too few commits and never entered reveal (its reveal deadline stays
+// 0). This mirrors the chain's settlementScheduleAnchor.
+//
+// Reveal == 0 is only met here once the same QueryTask snapshot that wrote these deadlines
+// showed the task SETTLING: settleStage turns ready only after that snapshot, and the chain
+// records the reveal deadline as soon as a round enters reveal, so a zero reveal deadline at
+// that point means round 1 really never revealed. Caller must hold the lock.
+func (f *taskFSM) settleScheduleAnchorLocked() (uint64, bool) {
+	switch {
+	case f.deadlines.Reveal > 0:
+		return uint64(f.deadlines.Reveal), true
+	case f.deadlines.Commit > 0:
+		return uint64(f.deadlines.Commit), true
+	default:
+		return 0, false
+	}
 }
 
 // settleSlotChangesAtExecution reports whether the submitter slot of the block the settlement
