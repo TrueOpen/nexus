@@ -216,6 +216,7 @@ func testDispatchConfig() config.DispatchConfig {
 		RecordGasPerEntry:                    300_000,
 		AnswerGasBase:                        300_000,
 		AnswerGasPerByte:                     30,
+		FailedOrderRetention:                 config.DefaultFailedOrderRetention,
 	}
 }
 
