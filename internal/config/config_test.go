@@ -31,7 +31,7 @@ func TestTaskDataDefaults(t *testing.T) {
 	got := defaults().TaskData
 	if got.InlineMaxBytes != 1<<20 || got.ChunkSizeBytes != 256<<10 || got.MaxRangeBytes != 8<<20 ||
 		got.MaxBlobBytes != 1<<30 || got.SpoolReservationBytes != 4<<30 || got.DiskAcceptWatermarkPercent != 85 ||
-		got.RequestTTLBlocks != 20 || got.RetentionLeaseBlocks != 1000 || got.SweepInterval != time.Minute ||
+		got.RequestTTLBlocks != 120 || got.RetentionLeaseBlocks != 1000 || got.SweepInterval != time.Minute ||
 		got.TombstoneRetentionBlocks != 120960 {
 		t.Fatalf("task data defaults = %+v", got)
 	}
@@ -130,7 +130,7 @@ func TestExampleConfigStrictlyLoadsWithTaskDataDefaults(t *testing.T) {
 	if err := cfg.TaskData.Validate(); err != nil {
 		t.Fatalf("example task data config: %v", err)
 	}
-	if cfg.TaskData.RequestTTLBlocks != 20 || cfg.TaskData.RetentionLeaseBlocks != 1000 || cfg.TaskData.SweepInterval != time.Minute ||
+	if cfg.TaskData.RequestTTLBlocks != 120 || cfg.TaskData.RetentionLeaseBlocks != 1000 || cfg.TaskData.SweepInterval != time.Minute ||
 		cfg.TaskData.TombstoneRetentionBlocks != 120960 {
 		t.Fatalf("example task data config = %+v", cfg.TaskData)
 	}
@@ -150,7 +150,13 @@ func TestTxConfirmConfigBoundsTheWait(t *testing.T) {
 	if cfg.Chain.TxConfirm != defaults().Chain.TxConfirm || cfg.Chain.TxConfirm.Validate() != nil {
 		t.Fatalf("example tx_confirm = %+v, want the valid defaults", cfg.Chain.TxConfirm)
 	}
-	for _, valid := range []TxConfirmConfig{{}, {BlockInterval: 2 * time.Second, WaitBlocks: 10}, {WaitBlocks: 4}} {
+	if d := defaults().Chain.TxConfirm; d.BlockInterval != 500*time.Millisecond || d.WaitBlocks != 30 {
+		t.Fatalf("default tx_confirm = %+v, want 500ms x 30", d)
+	}
+	for _, valid := range []TxConfirmConfig{
+		{}, {BlockInterval: 2 * time.Second, WaitBlocks: 10}, {WaitBlocks: 4},
+		{BlockInterval: 5 * time.Second, WaitBlocks: 3}, // the old complete configuration
+	} {
 		if err := valid.Validate(); err != nil {
 			t.Fatalf("%+v: %v", valid, err)
 		}
@@ -159,16 +165,90 @@ func TestTxConfirmConfigBoundsTheWait(t *testing.T) {
 		{BlockInterval: 10 * time.Second},
 		{BlockInterval: time.Second, WaitBlocks: 21},
 		{BlockInterval: -time.Second, WaitBlocks: 1},
+		{BlockInterval: time.Second}, // only the interval set: 1s x the default 30 = 30s
 	} {
 		if err := invalid.Validate(); err == nil {
 			t.Fatalf("%+v accepted", invalid)
 		}
+	}
+	// The error names the effective values, defaults included.
+	err = TxConfirmConfig{BlockInterval: time.Second}.Validate()
+	if err == nil || !strings.Contains(err.Error(), "block_interval 1s × wait_blocks 30 = 30s") {
+		t.Fatalf("over-cap error = %v, want the effective values", err)
 	}
 	t.Setenv("NEXUS_TX_CONFIRM_BLOCK_INTERVAL", "2s")
 	t.Setenv("NEXUS_TX_CONFIRM_WAIT_BLOCKS", "4")
 	cfg = Load()
 	if cfg.Chain.TxConfirm != (TxConfirmConfig{BlockInterval: 2 * time.Second, WaitBlocks: 4}) {
 		t.Fatalf("environment tx_confirm = %+v", cfg.Chain.TxConfirm)
+	}
+}
+
+// Zero fields take the defaults; a set field is kept as it is.
+func TestTxConfirmConfigEffective(t *testing.T) {
+	for _, tc := range []struct {
+		cfg      TxConfirmConfig
+		interval time.Duration
+		blocks   uint64
+	}{
+		{TxConfirmConfig{}, DefaultTxConfirmBlockInterval, DefaultTxConfirmWaitBlocks},
+		{TxConfirmConfig{BlockInterval: time.Second}, time.Second, DefaultTxConfirmWaitBlocks},
+		{TxConfirmConfig{WaitBlocks: 4}, DefaultTxConfirmBlockInterval, 4},
+		{TxConfirmConfig{BlockInterval: 2 * time.Second, WaitBlocks: 10}, 2 * time.Second, 10},
+		{TxConfirmConfig{BlockInterval: -time.Second, WaitBlocks: 1}, DefaultTxConfirmBlockInterval, 1},
+	} {
+		interval, blocks := tc.cfg.Effective()
+		if interval != tc.interval || blocks != tc.blocks {
+			t.Fatalf("%+v: effective = %s x %d, want %s x %d", tc.cfg, interval, blocks, tc.interval, tc.blocks)
+		}
+	}
+}
+
+// The height poll defaults to about one block; zero takes the default, and values far outside a
+// block interval are rejected as unit mistakes.
+func TestChainHeightPollInterval(t *testing.T) {
+	if got := defaults().Chain.HeightPollInterval; got != 500*time.Millisecond {
+		t.Fatalf("default height_poll_interval = %s, want 500ms", got)
+	}
+	example, err := LoadFile(filepath.Join("..", "..", "nexus.example.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if example.Chain.HeightPollInterval != DefaultHeightPollInterval {
+		t.Fatalf("example height_poll_interval = %s, want the default %s", example.Chain.HeightPollInterval, DefaultHeightPollInterval)
+	}
+	if got := (ChainConfig{}).HeightPoll(); got != DefaultHeightPollInterval {
+		t.Fatalf("zero height_poll_interval takes %s, want the default", got)
+	}
+	if got := (ChainConfig{HeightPollInterval: time.Second}).HeightPoll(); got != time.Second {
+		t.Fatalf("height_poll_interval 1s takes %s", got)
+	}
+	for _, valid := range []time.Duration{0, MinHeightPollInterval, DefaultHeightPollInterval, MaxHeightPollInterval} {
+		if err := (ChainConfig{HeightPollInterval: valid}).ValidateHeightPoll(); err != nil {
+			t.Fatalf("%s: %v", valid, err)
+		}
+	}
+	for _, invalid := range []time.Duration{-time.Second, MinHeightPollInterval - time.Millisecond, MaxHeightPollInterval + time.Millisecond} {
+		if err := (ChainConfig{HeightPollInterval: invalid}).ValidateHeightPoll(); err == nil {
+			t.Fatalf("%s accepted", invalid)
+		}
+	}
+
+	path := filepath.Join(t.TempDir(), "nexus.yaml")
+	if err := os.WriteFile(path, []byte("chain:\n  height_poll_interval: 750ms\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := LoadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Chain.HeightPollInterval != 750*time.Millisecond {
+		t.Fatalf("yaml height_poll_interval = %s", cfg.Chain.HeightPollInterval)
+	}
+
+	t.Setenv("NEXUS_CHAIN_HEIGHT_POLL_INTERVAL", "250ms")
+	if got := Load().Chain.HeightPollInterval; got != 250*time.Millisecond {
+		t.Fatalf("environment height_poll_interval = %s", got)
 	}
 }
 

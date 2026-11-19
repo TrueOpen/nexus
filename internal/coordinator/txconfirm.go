@@ -37,9 +37,17 @@ type TxConfirmPolicy struct {
 const relayLookupTimeout = 3 * time.Second
 
 // WithTxConfirmPolicy sets the block result wait of the Verifier relays. Zero fields keep the
-// defaults (3 intervals of 5 s); the whole wait is capped at config.MaxTxConfirmWait.
+// config defaults; the whole wait is capped at config.MaxTxConfirmWait.
 func WithTxConfirmPolicy(policy TxConfirmPolicy) Option {
 	return func(c *Coordinator) { c.txConfirmPolicy = policy }
+}
+
+// Effective returns the result query spacing and the whole wait of the policy: the config
+// defaults for zero fields (config.TxConfirmConfig.Effective), the wait capped at
+// config.MaxTxConfirmWait.
+func (p TxConfirmPolicy) Effective() (interval, wait time.Duration) {
+	interval, blocks := config.TxConfirmConfig{BlockInterval: p.BlockInterval, WaitBlocks: p.WaitBlocks}.Effective()
+	return interval, min(interval*time.Duration(blocks), config.MaxTxConfirmWait)
 }
 
 // VerifyStateQuerier reads the Verifier commit and result receipt the chain accepted, so a relay
@@ -63,17 +71,8 @@ func (c *Coordinator) newTxConfirm() *txConfirm {
 	if c.txQuery == nil {
 		return nil
 	}
-	interval, blocks := c.txConfirmPolicy.BlockInterval, c.txConfirmPolicy.WaitBlocks
-	if interval <= 0 {
-		interval = config.DefaultTxConfirmBlockInterval
-	}
-	if blocks == 0 {
-		blocks = config.DefaultTxConfirmWaitBlocks
-	}
-	return &txConfirm{
-		txs: c.txQuery, state: c.verifyState, interval: interval,
-		wait: min(interval*time.Duration(blocks), config.MaxTxConfirmWait),
-	}
+	interval, wait := c.txConfirmPolicy.Effective()
+	return &txConfirm{txs: c.txQuery, state: c.verifyState, interval: interval, wait: wait}
 }
 
 // temporaryTxFailure reports a refusal another try may pass. Only three cosmos-sdk refusals

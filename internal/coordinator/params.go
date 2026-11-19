@@ -24,9 +24,12 @@ const (
 	// only because OpenVerifyTx still carries this historical field.
 	selectedVerifierCount = 3
 	// verifierProposalCloseLeadBlocks is how many blocks before BuilderProposalCloseHeight batched
-	// Verifier hand-raises are submitted without waiting out the batching delay. It covers a height
-	// poll that skips a block or two.
-	verifierProposalCloseLeadBlocks = 2
+	// Verifier hand-raises are submitted without waiting out the batching delay. The observed
+	// height can skip a block or two between polls, the chain head can be a block or two ahead of
+	// it, and the transaction needs one to two blocks to be included; at 0.5 s blocks this keeps
+	// about 4 s in hand. Flushing early only costs a few more MsgSubmitVerifierHandraises near
+	// the close, while a late flush loses the batch to the Workers' own submissions.
+	verifierProposalCloseLeadBlocks = 8
 
 	// verifierProposalBatchDelay: how long to accumulate after the first Verifier hand-raise before submitting a proposal.
 	// Hand-raises usually arrive within a few hundred milliseconds; submitting one by one becomes several

@@ -4,6 +4,7 @@ package config
 
 import (
 	"fmt"
+	"math"
 	"math/big"
 	"net"
 	"net/url"
@@ -48,7 +49,9 @@ type TaskDataConfig struct {
 	MaxBlobBytes               uint64 `yaml:"max_blob_bytes"`
 	SpoolReservationBytes      uint64 `yaml:"spool_reservation_bytes"`
 	DiskAcceptWatermarkPercent uint32 `yaml:"disk_accept_watermark_percent"`
-	RequestTTLBlocks           uint64 `yaml:"request_ttl_blocks"`
+	// RequestTTLBlocks is how many Task Chain blocks ahead an OpenTask request may expire; the
+	// default 120 is about 60 s at 0.5 s blocks.
+	RequestTTLBlocks uint64 `yaml:"request_ttl_blocks"`
 	// UserRequestsPerMinute caps the Task data requests one user account may make per minute; a
 	// request over the cap is refused before its nonce is stored. 0 disables the cap.
 	UserRequestsPerMinute uint32        `yaml:"user_requests_per_minute"`
@@ -450,6 +453,42 @@ type ChainConfig struct {
 	DeadlineSweep DeadlineSweepConfig `yaml:"deadline_sweep"`
 	// TxConfirm bounds how long a Verifier commit or result relay waits for its block result.
 	TxConfirm TxConfirmConfig `yaml:"tx_confirm"`
+	// HeightPollInterval is how often the Task node's latest height is polled to drive new-block
+	// events (record packing, dispatch head, verifier proposal flush, reconcile). Keep it about the
+	// block interval: a longer poll skips heights, so records and proposals go out later. Zero
+	// takes DefaultHeightPollInterval.
+	HeightPollInterval time.Duration `yaml:"height_poll_interval"`
+}
+
+// DefaultHeightPollInterval is about one block at 0.5 s blocks.
+const DefaultHeightPollInterval = 500 * time.Millisecond
+
+// Bounds of a non-zero chain.height_poll_interval; values outside them are taken as a unit mistake.
+const (
+	MinHeightPollInterval = 100 * time.Millisecond
+	MaxHeightPollInterval = 10 * time.Second
+)
+
+// HeightPoll returns the effective height poll interval: HeightPollInterval, or the default when
+// it is zero.
+func (c ChainConfig) HeightPoll() time.Duration {
+	if c.HeightPollInterval == 0 {
+		return DefaultHeightPollInterval
+	}
+	return c.HeightPollInterval
+}
+
+// ValidateHeightPoll checks chain.height_poll_interval: zero (the default) or within
+// [MinHeightPollInterval, MaxHeightPollInterval].
+func (c ChainConfig) ValidateHeightPoll() error {
+	v := c.HeightPollInterval
+	if v < 0 {
+		return fmt.Errorf("chain.height_poll_interval must not be negative")
+	}
+	if v != 0 && (v < MinHeightPollInterval || v > MaxHeightPollInterval) {
+		return fmt.Errorf("chain.height_poll_interval %s must be between %s and %s (0 takes the default %s)", v, MinHeightPollInterval, MaxHeightPollInterval, DefaultHeightPollInterval)
+	}
+	return nil
 }
 
 // gasPricePattern is a plain non-negative decimal.
@@ -504,10 +543,11 @@ func (c ChainConfig) TxFee(gasLimit uint64) string {
 // whose HTTP client gives up after 60 s; 20 s leaves room for the broadcast and one chain lookup.
 const MaxTxConfirmWait = 20 * time.Second
 
-// Defaults of TxConfirmConfig: 3 blocks of about 5 s.
+// Defaults of TxConfirmConfig: 30 blocks of about 0.5 s, 15 s in all. The first result query
+// goes out one block interval after the broadcast.
 const (
-	DefaultTxConfirmBlockInterval        = 5 * time.Second
-	DefaultTxConfirmWaitBlocks    uint64 = 3
+	DefaultTxConfirmBlockInterval        = 500 * time.Millisecond
+	DefaultTxConfirmWaitBlocks    uint64 = 30
 )
 
 // TxConfirmConfig is the block result wait of a Verifier commit or result relay: the relay
@@ -521,19 +561,34 @@ type TxConfirmConfig struct {
 	WaitBlocks uint64 `yaml:"wait_blocks"`
 }
 
-func (c TxConfirmConfig) Validate() error {
+// Effective returns the block interval and wait blocks in use: a zero field takes its default
+// (a negative interval too; Validate rejects it). Every user of the wait reads it through here.
+func (c TxConfirmConfig) Effective() (time.Duration, uint64) {
 	interval, blocks := c.BlockInterval, c.WaitBlocks
-	if interval < 0 {
-		return fmt.Errorf("chain.tx_confirm block_interval must not be negative")
-	}
-	if interval == 0 {
+	if interval <= 0 {
 		interval = DefaultTxConfirmBlockInterval
 	}
 	if blocks == 0 {
 		blocks = DefaultTxConfirmWaitBlocks
 	}
+	return interval, blocks
+}
+
+// Validate rejects a negative block_interval and an effective block_interval × wait_blocks above
+// MaxTxConfirmWait. Setting only block_interval keeps the default wait_blocks, so both fields
+// should be changed together.
+func (c TxConfirmConfig) Validate() error {
+	if c.BlockInterval < 0 {
+		return fmt.Errorf("chain.tx_confirm block_interval must not be negative")
+	}
+	interval, blocks := c.Effective()
 	if blocks > uint64(MaxTxConfirmWait/interval) {
-		return fmt.Errorf("chain.tx_confirm block_interval × wait_blocks must not exceed %s", MaxTxConfirmWait)
+		total := "more than " + MaxTxConfirmWait.String()
+		if blocks <= uint64(math.MaxInt64/int64(interval)) {
+			total = (interval * time.Duration(blocks)).String()
+		}
+		return fmt.Errorf("chain.tx_confirm block_interval %s × wait_blocks %d = %s must not exceed %s (an unset field takes its default)",
+			interval, blocks, total, MaxTxConfirmWait)
 	}
 	return nil
 }
@@ -639,7 +694,7 @@ func defaults() Config {
 			MaxBlobBytes:               1 << 30,
 			SpoolReservationBytes:      4 << 30,
 			DiskAcceptWatermarkPercent: 85,
-			RequestTTLBlocks:           20,
+			RequestTTLBlocks:           120,
 			UserRequestsPerMinute:      600,
 			RetentionLeaseBlocks:       1000,
 			SweepInterval:              time.Minute,
@@ -653,6 +708,8 @@ func defaults() Config {
 			ChainID:   "trueopen-localnet-1",
 			GasLimit:  200000,
 			TxConfirm: TxConfirmConfig{BlockInterval: DefaultTxConfirmBlockInterval, WaitBlocks: DefaultTxConfirmWaitBlocks},
+
+			HeightPollInterval: DefaultHeightPollInterval,
 		},
 		Hub: HubConfig{
 			GasLimit: 200000,
@@ -728,6 +785,7 @@ func applyEnv(cfg *Config) {
 	cfg.Chain.DeadlineSweep.GraceBlocks = envUint64("NEXUS_DEADLINE_SWEEP_GRACE_BLOCKS", cfg.Chain.DeadlineSweep.GraceBlocks)
 	cfg.Chain.TxConfirm.BlockInterval = envDuration("NEXUS_TX_CONFIRM_BLOCK_INTERVAL", cfg.Chain.TxConfirm.BlockInterval)
 	cfg.Chain.TxConfirm.WaitBlocks = envUint64("NEXUS_TX_CONFIRM_WAIT_BLOCKS", cfg.Chain.TxConfirm.WaitBlocks)
+	cfg.Chain.HeightPollInterval = envDuration("NEXUS_CHAIN_HEIGHT_POLL_INTERVAL", cfg.Chain.HeightPollInterval)
 	cfg.Hub.Enabled = envBool("NEXUS_HUB_ENABLED", cfg.Hub.Enabled)
 	cfg.Hub.GRPCAddr = env("NEXUS_HUB_GRPC", cfg.Hub.GRPCAddr)
 	cfg.Hub.ChainID = env("NEXUS_HUB_CHAIN_ID", cfg.Hub.ChainID)

@@ -28,10 +28,26 @@ const (
 	outcomeVoided   = taskv1.DispatchAttemptOutcomeV1_DISPATCH_ATTEMPT_OUTCOME_V1_VOIDED
 )
 
-// recordLeadBlocks is how far ahead of its record deadline an order must be accepted: an entry
-// accepted while the head is h goes out with the record transaction of block h+1 and lands in
-// block h+2 at the earliest.
-const recordLeadBlocks = 2
+// recordLeadBlocks is how far ahead of its record deadline an order must be accepted. With
+// 0.5 s blocks the path from an accept at observed head h to an included record is:
+//   - the observed head can lag the chain by a block or two (one height poll plus the RPC);
+//   - the Recorder packs on the next new-block event, about one more block;
+//   - the record transaction needs one to two blocks to be included, since the next block's
+//     proposal is often already being built when it reaches the mempool.
+//
+// That lands the record at about h+5; one more block covers a resend after a sequence mismatch.
+//
+// The cost is a shorter candidate walk: an order checked at ingress is fresh
+// (earliest_submit_height >= head - order_freshness_margin_blocks) and its order_expire_height is
+// not before its record deadline, so with the chain default record_deadline_blocks of 20 its
+// deadline D is at least head+17 and it never starts inside head < D < head+6; only takeover
+// orders, which skip the freshness check, can. What the larger lead costs is the walk window,
+// which shrinks from about 15-19 blocks to 11-15. The same lead applies when another Builder
+// registers a takeover of the session: this Builder's in-flight orders then have their deadline
+// lowered to the activation height (registration height + record_deadline_blocks, see
+// liveRecordDeadline), so they must be accepted at least recordLeadBlocks before it, a window of
+// about 14 blocks instead of 18.
+const recordLeadBlocks = 6
 
 // TooLateToRecord reports whether an entry accepted with the chain head at head can no longer be
 // recorded by deadline. No ticket is issued and no accept taken then: a late record is charged to

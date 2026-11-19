@@ -36,19 +36,24 @@ func newSupportRelay(
 	if !ok {
 		return nil, fmt.Errorf("support relay needs a chain client that reads transaction results")
 	}
-	interval, blocks := txConfirm.BlockInterval, txConfirm.WaitBlocks
-	if interval == 0 {
-		interval = config.DefaultTxConfirmBlockInterval
-	}
-	if blocks == 0 {
-		blocks = config.DefaultTxConfirmWaitBlocks
-	}
 	return supportrelay.New(supportrelay.Config{
 		ChainID: authority.Chain.ChainID, AddressPrefix: addressPrefix, SubmitterAddress: accountSigner.Address(),
 		FlushInterval: cfg.FlushInterval, FlushItems: cfg.FlushItems, MaxQueued: cfg.MaxQueued,
 		InclusionMarginBlocks: cfg.InclusionMarginBlocks,
 		GasBase:               cfg.GasBase, GasPerConfirmation: cfg.GasPerConfirmation, GasPerModel: cfg.GasPerModel,
-		TxWait: chaincli.TxWait{Kind: "MsgBatchConfirmModelSupport", Interval: interval, Timeout: interval * time.Duration(blocks)},
+		TxWait: supportRelayTxWait(txConfirm),
 	}, log, supportRelayChain{Client: chain, TxQuerier: txs},
 		coordinator.NewSupportSubmitter(log, chain, accountSigner, authority.Chain, shared), store)
+}
+
+// supportRelayTxWait is the block result wait of a support batch: the effective chain.tx_confirm
+// values, uncapped (app.New refuses a configuration above config.MaxTxConfirmWait).
+func supportRelayTxWait(txConfirm config.TxConfirmConfig) chaincli.TxWait {
+	interval, blocks := txConfirm.Effective()
+	return chaincli.TxWait{Kind: "MsgBatchConfirmModelSupport", Interval: interval, Timeout: interval * time.Duration(blocks)}
+}
+
+// txConfirmPolicy is the coordinator's Verifier relay wait for chain.tx_confirm.
+func txConfirmPolicy(txConfirm config.TxConfirmConfig) coordinator.TxConfirmPolicy {
+	return coordinator.TxConfirmPolicy{BlockInterval: txConfirm.BlockInterval, WaitBlocks: txConfirm.WaitBlocks}
 }

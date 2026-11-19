@@ -64,9 +64,10 @@ task_data:
   max_blob_bytes: 1073741824
   spool_reservation_bytes: 4294967296
   disk_accept_watermark_percent: 85
-  # OpenTask requests may expire at most this many Task Chain blocks ahead. Task data requests use
+  # OpenTask requests may expire at most this many Task Chain blocks ahead (120 blocks is about
+  # 60s at 0.5s blocks); keep it at or above the SDK's requestTtlBlocks. Task data requests use
   # the Hub parameter service.max_service_material_expiry_blocks instead.
-  request_ttl_blocks: 20
+  request_ttl_blocks: 120
   # Task data requests one user account may make per minute; 0 disables the cap.
   user_requests_per_minute: 600
   # Fallback retention window for Builder storage confirmations
@@ -202,6 +203,11 @@ chain:
   # gas still meets the node's minimum-gas-prices. Set it to at least that minimum on any chain
   # with a non-zero minimum-gas-prices; empty or 0 keeps the fixed fee_amount.
   gas_price: ""
+  # How often the Task node's latest height is polled (env NEXUS_CHAIN_HEIGHT_POLL_INTERVAL); new
+  # block events drive record packing, dispatch, verifier proposals and reconcile. Keep it about
+  # the block interval (0.5s blocks): a longer poll skips heights, so records and proposals go out
+  # later. 0 or unset takes 500ms; non-zero values must be within 100ms..10s.
+  height_poll_interval: 500ms
   # MsgSweepDeadline is the single public deadline runner:
   # any account may submit it and the runner pays its own gas, so acting as that
   # runner is an operational choice, not a protocol duty. Default off — nexus only
@@ -216,10 +222,13 @@ chain:
   # A Verifier commit or result relay answers only after its transaction executed in a
   # block, waiting at most block_interval × wait_blocks (capped at 20s: below the 60s
   # Cortex relay call timeout). No result in time
-  # is reported as a temporary failure and the Verifier retries.
+  # is reported as a temporary failure and the Verifier retries. The result is first queried one
+  # block_interval after the broadcast; the defaults are 30 blocks of 0.5s (15s). Change both
+  # fields together: an unset wait_blocks stays 30, so block_interval: 1s alone (30s) is over the
+  # cap and nexus refuses to start.
   tx_confirm:
-    block_interval: 5s
-    wait_blocks: 3
+    block_interval: 500ms
+    wait_blocks: 30
 
 # Hub is the sole source of truth for the Builder registry and stake when enabled. The chain block
 # above remains the Task Chain used for task execution and events.

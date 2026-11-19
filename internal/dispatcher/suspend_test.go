@@ -117,9 +117,9 @@ func outcomesOf(st *orderState) []string {
 	return out
 }
 
-// An entry accepted while the head is h goes out with the record of block h+1 and lands in block
-// h+2 at the earliest: an accept with the head one block before the record deadline can no longer
-// be recorded in time and is refused, one two blocks before is taken.
+// An accept must leave recordLeadBlocks for the record to be packed and included: an accept with
+// the head exactly recordLeadBlocks before the record deadline is taken, one a block later can no
+// longer be recorded in time and is refused.
 func TestAcceptMustLeaveTimeToRecord(t *testing.T) {
 	e := newEnv(t)
 	s, other := e.session(0xaa, 0), e.session(0xbb, 0)
@@ -127,15 +127,15 @@ func TestAcceptMustLeaveTimeToRecord(t *testing.T) {
 	_, first, firstHash := e.lastOffer()
 	e.dispatch(e.order(other, 0, 1))
 	_, ticket, hash := e.lastOffer()
-	e.sessions.ObserveHeight(testDeadline - 2)
+	e.sessions.ObserveHeight(testDeadline - recordLeadBlocks)
 	m, from := e.acceptMsg(first, firstHash)
 	if err := e.d.HandleDispatchAccept(context.Background(), from, m); err != nil {
-		t.Fatalf("accept two blocks before the record deadline = %v", err)
+		t.Fatalf("accept recordLeadBlocks before the record deadline = %v", err)
 	}
-	e.sessions.ObserveHeight(testDeadline - 1)
+	e.sessions.ObserveHeight(testDeadline - recordLeadBlocks + 1)
 	m, from = e.acceptMsg(ticket, hash)
 	if err := e.d.HandleDispatchAccept(context.Background(), from, m); !errors.Is(err, ErrTicketClosed) {
-		t.Fatalf("accept one block before the record deadline = %v", err)
+		t.Fatalf("accept recordLeadBlocks-1 blocks before the record deadline = %v", err)
 	}
 	if got := e.observer.snapshot(); len(got.accepted) != 1 || len(got.failed) != 1 || !errors.Is(got.failed[0], ErrRecordDeadline) {
 		t.Fatalf("observed %+v", got)
