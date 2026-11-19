@@ -97,6 +97,30 @@ func (c *Coordinator) abandonedRecord(key string) (abandonedTaskRecord, bool, er
 	return record, true, nil
 }
 
+// abandonedJournal returns the journal of key for a reader when it has an abandoned task record,
+// restoring it into the shared map from the record when it is not there. Unlike journalFor it
+// creates nothing for a key without a record, so a record the sweep removed meanwhile does not
+// leave an empty journal behind.
+func (c *Coordinator) abandonedJournal(key string) (*journal, bool) {
+	c.jmu.Lock()
+	defer c.jmu.Unlock()
+	if j, ok := c.journals[key]; ok {
+		return j, true
+	}
+	record, found, err := c.abandonedRecord(key)
+	if err != nil {
+		c.log.Warn("abandoned task record unreadable", "key", key, "err", err)
+		return nil, false
+	}
+	if !found {
+		return nil, false
+	}
+	j := newJournal()
+	j.restoreEntries(record.Journal)
+	c.journals[key] = j
+	return j, true
+}
+
 // abandonedTaskStatus is the GetTaskStatus answer for a task that has no state machine: FAILED
 // with the phase it was dropped in when it has an abandoned task record, ErrTaskNotFound
 // otherwise. Stage follows the takeover events of its journal, as for a pending task.

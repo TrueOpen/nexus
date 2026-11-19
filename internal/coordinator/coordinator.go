@@ -1171,12 +1171,11 @@ func (c *Coordinator) TaskEvents(_ context.Context, sessionID, taskID string, fr
 	j, ok := c.journals[key]
 	c.jmu.Unlock()
 	if !ok {
-		if !c.hasAbandonedRecord(key) {
-			return nil, nil, nil, ErrTaskNotFound
-		}
 		// An abandoned task's journal after a restart: restored into the shared map, so a retry
 		// of the sequence appends to the journal this subscriber reads.
-		j = c.journalFor(key)
+		if j, ok = c.abandonedJournal(key); !ok {
+			return nil, nil, nil, ErrTaskNotFound
+		}
 	}
 	replay, live, cancel := j.subscribe(fromCursor)
 	return replay, live, cancel, nil
@@ -1471,14 +1470,16 @@ func (c *Coordinator) dropTask(key string, expected *taskFSM, keepRecord bool) {
 	c.markOrderAbandoned(expected.order)
 	if keepRecord {
 		if op, at, ok := c.abandonedRecordOp(key, expected); ok {
-			if err := c.kv.WriteBatch(op, kv.WriteOp{NS: kv.NSTask, Key: key, Delete: true}); err != nil {
-				c.log.Warn("abandoned task record and snapshot delete failed", "key", key, "err", err)
+			err := c.kv.WriteBatch(op, kv.WriteOp{NS: kv.NSTask, Key: key, Delete: true})
+			if err == nil {
+				c.amu.Lock()
+				c.abandoned[key] = at
+				c.amu.Unlock()
 				return
 			}
-			c.amu.Lock()
-			c.abandoned[key] = at
-			c.amu.Unlock()
-			return
+			// Without the record the task ends as before: its snapshot must still go, or a
+			// restart would bring it back as Pending.
+			c.log.Warn("abandoned task record not written; its events are not kept", "key", key, "err", err)
 		}
 	}
 	if err := c.kv.Delete(kv.NSTask, key); err != nil {

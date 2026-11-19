@@ -252,3 +252,50 @@ func TestAbandonedTaskSweep(t *testing.T) {
 		t.Fatal("the sweep removed the journal of a live task")
 	}
 }
+
+// abandonedBatchFailStore fails every batch that writes an abandoned task record.
+type abandonedBatchFailStore struct {
+	kv.Store
+}
+
+func (s abandonedBatchFailStore) WriteBatch(ops ...kv.WriteOp) error {
+	for _, op := range ops {
+		if op.NS == kv.NSAbandonedTask {
+			return errors.New("disk full")
+		}
+	}
+	return s.Store.WriteBatch(ops...)
+}
+
+// When the abandoned task record cannot be written the task still ends as before: its snapshot is
+// deleted, so a restart does not bring it back, and no record is indexed.
+func TestAbandonedRecordWriteFailureStillDeletesTheSnapshot(t *testing.T) {
+	inner := kv.NewMemStore()
+	c, _ := newTaskTrackingCoordinator(t, abandonedBatchFailStore{Store: inner})
+	o := startAbandonedTestTask(t, c)
+	key := taskKey(o.SessionID, o.TaskID)
+	if _, found, _ := inner.GetWithError(kv.NSTask, key); found {
+		t.Fatal("the snapshot survived a failed record write")
+	}
+	if _, found, _ := inner.GetWithError(kv.NSAbandonedTask, key); found || c.hasAbandonedRecord(key) {
+		t.Fatal("a failed record write left a record")
+	}
+}
+
+// A reader of a key whose record is gone gets NotFound and leaves no journal behind.
+func TestTaskEventsWithoutARecordCreatesNoJournal(t *testing.T) {
+	c, _ := newTaskTrackingCoordinator(t, kv.NewMemStore())
+	key := taskKey("session-9", "task-9")
+	c.amu.Lock()
+	c.abandoned[key] = c.now().Unix() // indexed, but the record is not stored
+	c.amu.Unlock()
+	if _, _, _, err := c.TaskEvents(context.Background(), "session-9", "task-9", 0); !errors.Is(err, ErrTaskNotFound) {
+		t.Fatalf("TaskEvents = %v", err)
+	}
+	c.jmu.Lock()
+	_, created := c.journals[key]
+	c.jmu.Unlock()
+	if created {
+		t.Fatal("a read without a record created a journal")
+	}
+}
