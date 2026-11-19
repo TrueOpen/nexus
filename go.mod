@@ -113,3 +113,5 @@ require (
 	google.golang.org/grpc v1.79.3 // indirect
 	sigs.k8s.io/yaml v1.6.0 // indirect
 )
+
+replace github.com/TrueOpen/wire => github.com/yuqi19880516-ship-it/wire v0.7.0-anchor-content.3
