@@ -488,7 +488,7 @@ rejected. The body digest of each method uses its own `TRUEOPEN_SDK_BODY_*_V1` d
 - Checks run in wire order and stop at the first failure: format (`NEXUS_INGRESS_MALFORMED`),
   session method set, grant, signature over the digest rebuilt with this chain's `chain_id` and
   the carried `signature_chain_id` (`SDK_AUTH_INVALID_SIGNATURE` / `DATA_ACCESS_INVALID_SIGNATURE`), then expiry and
-  replay. An OpenTask expiry is a chain height within `task_data.request_ttl_blocks` (default 20);
+  replay. An OpenTask expiry is a chain height within `task_data.request_ttl_blocks` (default 120);
   a Task data request expiry lies within the Hub parameter
   `service.max_service_material_expiry_blocks`, read at startup and re-read every 10 minutes.
 - One user account may make at most `task_data.user_requests_per_minute` Task data requests per

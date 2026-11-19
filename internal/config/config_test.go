@@ -31,7 +31,7 @@ func TestTaskDataDefaults(t *testing.T) {
 	got := defaults().TaskData
 	if got.InlineMaxBytes != 1<<20 || got.ChunkSizeBytes != 256<<10 || got.MaxRangeBytes != 8<<20 ||
 		got.MaxBlobBytes != 1<<30 || got.SpoolReservationBytes != 4<<30 || got.DiskAcceptWatermarkPercent != 85 ||
-		got.RequestTTLBlocks != 20 || got.RetentionLeaseBlocks != 1000 || got.SweepInterval != time.Minute ||
+		got.RequestTTLBlocks != 120 || got.RetentionLeaseBlocks != 1000 || got.SweepInterval != time.Minute ||
 		got.TombstoneRetentionBlocks != 120960 {
 		t.Fatalf("task data defaults = %+v", got)
 	}
@@ -130,7 +130,7 @@ func TestExampleConfigStrictlyLoadsWithTaskDataDefaults(t *testing.T) {
 	if err := cfg.TaskData.Validate(); err != nil {
 		t.Fatalf("example task data config: %v", err)
 	}
-	if cfg.TaskData.RequestTTLBlocks != 20 || cfg.TaskData.RetentionLeaseBlocks != 1000 || cfg.TaskData.SweepInterval != time.Minute ||
+	if cfg.TaskData.RequestTTLBlocks != 120 || cfg.TaskData.RetentionLeaseBlocks != 1000 || cfg.TaskData.SweepInterval != time.Minute ||
 		cfg.TaskData.TombstoneRetentionBlocks != 120960 {
 		t.Fatalf("example task data config = %+v", cfg.TaskData)
 	}

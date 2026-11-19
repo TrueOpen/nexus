@@ -49,7 +49,9 @@ type TaskDataConfig struct {
 	MaxBlobBytes               uint64 `yaml:"max_blob_bytes"`
 	SpoolReservationBytes      uint64 `yaml:"spool_reservation_bytes"`
 	DiskAcceptWatermarkPercent uint32 `yaml:"disk_accept_watermark_percent"`
-	RequestTTLBlocks           uint64 `yaml:"request_ttl_blocks"`
+	// RequestTTLBlocks is how many Task Chain blocks ahead an OpenTask request may expire; the
+	// default 120 is about 60 s at 0.5 s blocks.
+	RequestTTLBlocks uint64 `yaml:"request_ttl_blocks"`
 	// UserRequestsPerMinute caps the Task data requests one user account may make per minute; a
 	// request over the cap is refused before its nonce is stored. 0 disables the cap.
 	UserRequestsPerMinute uint32        `yaml:"user_requests_per_minute"`
@@ -692,7 +694,7 @@ func defaults() Config {
 			MaxBlobBytes:               1 << 30,
 			SpoolReservationBytes:      4 << 30,
 			DiskAcceptWatermarkPercent: 85,
-			RequestTTLBlocks:           20,
+			RequestTTLBlocks:           120,
 			UserRequestsPerMinute:      600,
 			RetentionLeaseBlocks:       1000,
 			SweepInterval:              time.Minute,

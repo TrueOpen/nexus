@@ -64,9 +64,10 @@ task_data:
   max_blob_bytes: 1073741824
   spool_reservation_bytes: 4294967296
   disk_accept_watermark_percent: 85
-  # OpenTask requests may expire at most this many Task Chain blocks ahead. Task data requests use
+  # OpenTask requests may expire at most this many Task Chain blocks ahead (120 blocks is about
+  # 60s at 0.5s blocks); keep it at or above the SDK's requestTtlBlocks. Task data requests use
   # the Hub parameter service.max_service_material_expiry_blocks instead.
-  request_ttl_blocks: 20
+  request_ttl_blocks: 120
   # Task data requests one user account may make per minute; 0 disables the cap.
   user_requests_per_minute: 600
   # Fallback retention window for Builder storage confirmations
