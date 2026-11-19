@@ -221,10 +221,13 @@ chain:
   # A Verifier commit or result relay answers only after its transaction executed in a
   # block, waiting at most block_interval × wait_blocks (capped at 20s: below the 60s
   # Cortex relay call timeout). No result in time
-  # is reported as a temporary failure and the Verifier retries.
+  # is reported as a temporary failure and the Verifier retries. The result is first queried one
+  # block_interval after the broadcast; the defaults are 30 blocks of 0.5s (15s). Change both
+  # fields together: an unset wait_blocks stays 30, so block_interval: 1s alone (30s) is over the
+  # cap and nexus refuses to start.
   tx_confirm:
-    block_interval: 5s
-    wait_blocks: 3
+    block_interval: 500ms
+    wait_blocks: 30
 
 # Hub is the sole source of truth for the Builder registry and stake when enabled. The chain block
 # above remains the Task Chain used for task execution and events.

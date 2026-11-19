@@ -150,7 +150,13 @@ func TestTxConfirmConfigBoundsTheWait(t *testing.T) {
 	if cfg.Chain.TxConfirm != defaults().Chain.TxConfirm || cfg.Chain.TxConfirm.Validate() != nil {
 		t.Fatalf("example tx_confirm = %+v, want the valid defaults", cfg.Chain.TxConfirm)
 	}
-	for _, valid := range []TxConfirmConfig{{}, {BlockInterval: 2 * time.Second, WaitBlocks: 10}, {WaitBlocks: 4}} {
+	if d := defaults().Chain.TxConfirm; d.BlockInterval != 500*time.Millisecond || d.WaitBlocks != 30 {
+		t.Fatalf("default tx_confirm = %+v, want 500ms x 30", d)
+	}
+	for _, valid := range []TxConfirmConfig{
+		{}, {BlockInterval: 2 * time.Second, WaitBlocks: 10}, {WaitBlocks: 4},
+		{BlockInterval: 5 * time.Second, WaitBlocks: 3}, // the old complete configuration
+	} {
 		if err := valid.Validate(); err != nil {
 			t.Fatalf("%+v: %v", valid, err)
 		}
@@ -159,16 +165,42 @@ func TestTxConfirmConfigBoundsTheWait(t *testing.T) {
 		{BlockInterval: 10 * time.Second},
 		{BlockInterval: time.Second, WaitBlocks: 21},
 		{BlockInterval: -time.Second, WaitBlocks: 1},
+		{BlockInterval: time.Second}, // only the interval set: 1s x the default 30 = 30s
 	} {
 		if err := invalid.Validate(); err == nil {
 			t.Fatalf("%+v accepted", invalid)
 		}
+	}
+	// The error names the effective values, defaults included.
+	err = TxConfirmConfig{BlockInterval: time.Second}.Validate()
+	if err == nil || !strings.Contains(err.Error(), "block_interval 1s × wait_blocks 30 = 30s") {
+		t.Fatalf("over-cap error = %v, want the effective values", err)
 	}
 	t.Setenv("NEXUS_TX_CONFIRM_BLOCK_INTERVAL", "2s")
 	t.Setenv("NEXUS_TX_CONFIRM_WAIT_BLOCKS", "4")
 	cfg = Load()
 	if cfg.Chain.TxConfirm != (TxConfirmConfig{BlockInterval: 2 * time.Second, WaitBlocks: 4}) {
 		t.Fatalf("environment tx_confirm = %+v", cfg.Chain.TxConfirm)
+	}
+}
+
+// Zero fields take the defaults; a set field is kept as it is.
+func TestTxConfirmConfigEffective(t *testing.T) {
+	for _, tc := range []struct {
+		cfg      TxConfirmConfig
+		interval time.Duration
+		blocks   uint64
+	}{
+		{TxConfirmConfig{}, DefaultTxConfirmBlockInterval, DefaultTxConfirmWaitBlocks},
+		{TxConfirmConfig{BlockInterval: time.Second}, time.Second, DefaultTxConfirmWaitBlocks},
+		{TxConfirmConfig{WaitBlocks: 4}, DefaultTxConfirmBlockInterval, 4},
+		{TxConfirmConfig{BlockInterval: 2 * time.Second, WaitBlocks: 10}, 2 * time.Second, 10},
+		{TxConfirmConfig{BlockInterval: -time.Second, WaitBlocks: 1}, DefaultTxConfirmBlockInterval, 1},
+	} {
+		interval, blocks := tc.cfg.Effective()
+		if interval != tc.interval || blocks != tc.blocks {
+			t.Fatalf("%+v: effective = %s x %d, want %s x %d", tc.cfg, interval, blocks, tc.interval, tc.blocks)
+		}
 	}
 }
 

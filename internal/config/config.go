@@ -4,6 +4,7 @@ package config
 
 import (
 	"fmt"
+	"math"
 	"math/big"
 	"net"
 	"net/url"
@@ -540,10 +541,11 @@ func (c ChainConfig) TxFee(gasLimit uint64) string {
 // whose HTTP client gives up after 60 s; 20 s leaves room for the broadcast and one chain lookup.
 const MaxTxConfirmWait = 20 * time.Second
 
-// Defaults of TxConfirmConfig: 3 blocks of about 5 s.
+// Defaults of TxConfirmConfig: 30 blocks of about 0.5 s, 15 s in all. The first result query
+// goes out one block interval after the broadcast.
 const (
-	DefaultTxConfirmBlockInterval        = 5 * time.Second
-	DefaultTxConfirmWaitBlocks    uint64 = 3
+	DefaultTxConfirmBlockInterval        = 500 * time.Millisecond
+	DefaultTxConfirmWaitBlocks    uint64 = 30
 )
 
 // TxConfirmConfig is the block result wait of a Verifier commit or result relay: the relay
@@ -557,19 +559,34 @@ type TxConfirmConfig struct {
 	WaitBlocks uint64 `yaml:"wait_blocks"`
 }
 
-func (c TxConfirmConfig) Validate() error {
+// Effective returns the block interval and wait blocks in use: a zero field takes its default
+// (a negative interval too; Validate rejects it). Every user of the wait reads it through here.
+func (c TxConfirmConfig) Effective() (time.Duration, uint64) {
 	interval, blocks := c.BlockInterval, c.WaitBlocks
-	if interval < 0 {
-		return fmt.Errorf("chain.tx_confirm block_interval must not be negative")
-	}
-	if interval == 0 {
+	if interval <= 0 {
 		interval = DefaultTxConfirmBlockInterval
 	}
 	if blocks == 0 {
 		blocks = DefaultTxConfirmWaitBlocks
 	}
+	return interval, blocks
+}
+
+// Validate rejects a negative block_interval and an effective block_interval × wait_blocks above
+// MaxTxConfirmWait. Setting only block_interval keeps the default wait_blocks, so both fields
+// should be changed together.
+func (c TxConfirmConfig) Validate() error {
+	if c.BlockInterval < 0 {
+		return fmt.Errorf("chain.tx_confirm block_interval must not be negative")
+	}
+	interval, blocks := c.Effective()
 	if blocks > uint64(MaxTxConfirmWait/interval) {
-		return fmt.Errorf("chain.tx_confirm block_interval × wait_blocks must not exceed %s", MaxTxConfirmWait)
+		total := "more than " + MaxTxConfirmWait.String()
+		if blocks <= uint64(math.MaxInt64/int64(interval)) {
+			total = (interval * time.Duration(blocks)).String()
+		}
+		return fmt.Errorf("chain.tx_confirm block_interval %s × wait_blocks %d = %s must not exceed %s (an unset field takes its default)",
+			interval, blocks, total, MaxTxConfirmWait)
 	}
 	return nil
 }

@@ -346,10 +346,7 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 			Enabled:     cfg.Chain.DeadlineSweep.Enabled,
 			GraceBlocks: cfg.Chain.DeadlineSweep.GraceBlocks,
 		}),
-		coordinator.WithTxConfirmPolicy(coordinator.TxConfirmPolicy{
-			BlockInterval: cfg.Chain.TxConfirm.BlockInterval,
-			WaitBlocks:    cfg.Chain.TxConfirm.WaitBlocks,
-		}),
+		coordinator.WithTxConfirmPolicy(txConfirmPolicy(cfg.Chain.TxConfirm)),
 	}
 	if eventOptions.protocolOnHub {
 		coordOpts = append(coordOpts, coordinator.WithProtocolEventSource(hubChain.Events()))
