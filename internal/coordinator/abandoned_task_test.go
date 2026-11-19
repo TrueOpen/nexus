@@ -29,6 +29,11 @@ func startAbandonedTestTask(t *testing.T, c *Coordinator) types.Order {
 	if err := c.OnOrder(context.Background(), o); err != nil {
 		t.Fatal(err)
 	}
+	// The snapshot is stored before the failure, so the tests that see it deleted afterwards
+	// check a real deletion.
+	if _, found, err := c.kv.GetWithError(kv.NSTask, taskKey(o.SessionID, o.TaskID)); err != nil || !found {
+		t.Fatalf("snapshot before the dispatch failure: found=%v err=%v", found, err)
+	}
 	c.DispatchFailed(o.SessionID, o.TaskID, dispatchdraw.ErrNoCapacity)
 	if _, ok := c.getFSM(o.SessionID, o.TaskID); ok {
 		t.Fatal("a failed dispatch kept its task")
