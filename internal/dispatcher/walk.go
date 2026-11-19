@@ -272,12 +272,13 @@ func (d *Dispatcher) step(ctx context.Context, o *order) done {
 		}
 		params := d.params.Load()
 		if st.Skips > params.MaxSkips {
-			return d.fail(o, fmt.Errorf("%w: %d skips (%s)", dispatchdraw.ErrNoCapacity, st.Skips, st.skipSummary()))
+			return d.fail(o, d.walkExhausted(ctx, st, skipsExhausted(st.Skips, params.MaxSkips, st.skipSummary())))
 		}
 		cand, ok := o.draw.Next(o.roster, st.Cursor)
 		if !ok {
-			d.cfg.Metrics.Add(opsmetrics.CounterSkips, opsmetrics.SkipNotInRoster, uint64(len(o.draw.Members))-min(uint64(st.Cursor), uint64(len(o.draw.Members))))
-			return d.fail(o, fmt.Errorf("%w: no member of round %d left after rank %d (%s)", dispatchdraw.ErrNoCapacity, o.rosterRound, st.Cursor, st.skipSummary()))
+			members := uint64(len(o.draw.Members))
+			d.cfg.Metrics.Add(opsmetrics.CounterSkips, opsmetrics.SkipNotInRoster, members-min(uint64(st.Cursor), members))
+			return d.fail(o, d.walkExhausted(ctx, st, membersExhausted(uint64(st.Cursor), members, st.skipSummary())))
 		}
 		d.cfg.Metrics.Add(opsmetrics.CounterSkips, opsmetrics.SkipNotInRoster, uint64(cand.Rank-min(cand.Rank, st.Cursor)))
 		offered, err := d.issue(ctx, o, cand)
@@ -724,6 +725,16 @@ func (d *Dispatcher) orderLeft(st *orderState, outcome string) {
 	}
 	d.cfg.Metrics.Inc(opsmetrics.CounterTicketsPerOrder, label)
 	d.cfg.Metrics.Inc(opsmetrics.CounterOrders, outcome)
+}
+
+// walkExhausted is the NO_CAPACITY error of an order whose walk passed max_skips or its last
+// member: an *dispatchdraw.EpochExhaustedError naming the next epoch's first height, or a plain
+// ErrNoCapacity when the order holds no epoch.
+func (d *Dispatcher) walkExhausted(ctx context.Context, st *orderState, reason string) error {
+	if st.Epoch == nil {
+		return fmt.Errorf("%w: %s", dispatchdraw.ErrNoCapacity, reason)
+	}
+	return d.epochExhausted(ctx, st.SessionID, st.Sequence, st.Epoch.Number, reason)
 }
 
 // fail ends the order without a winner. The sequence is not used; its ledger entry fails, so a

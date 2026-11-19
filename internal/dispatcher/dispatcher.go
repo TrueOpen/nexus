@@ -651,19 +651,39 @@ func (d *Dispatcher) exhaustedRetry(ctx context.Context, o types.Order, epoch di
 	if err != nil || !session.Found || session.BoundBuilder != d.cfg.Builder || max(bound, session.BoundChangeHeight) != binding {
 		return nil
 	}
-	exhausted := &dispatchdraw.EpochExhaustedError{Epoch: epoch.Number}
 	switch maxSkips := d.params.Load().MaxSkips; {
 	case skips > maxSkips:
-		exhausted.Reason = fmt.Sprintf("the earlier attempts of the sequence took %d skips, past max_skips %d (%s)", skips, maxSkips, summary)
+		return d.epochExhausted(ctx, o.SessionID, o.OrderSequence, epoch.Number, skipsExhausted(skips, maxSkips, summary))
 	case cursor >= members:
-		exhausted.Reason = fmt.Sprintf("no member of the order is left after rank %d of %d (%s)", cursor, members, summary)
+		return d.epochExhausted(ctx, o.SessionID, o.OrderSequence, epoch.Number, membersExhausted(cursor, members, summary))
 	default:
 		return nil
 	}
-	if next, err := d.cfg.Drawer.StartHeight(ctx, epoch.Number+1); err == nil {
+}
+
+// skipsExhausted is the reason of a sequence whose attempts in the epoch took more than
+// max_skips skips.
+func skipsExhausted(skips, maxSkips uint32, summary string) string {
+	return fmt.Sprintf("the attempts of the sequence took %d skips, past max_skips %d (%s)", skips, maxSkips, summary)
+}
+
+// membersExhausted is the reason of a sequence whose attempts in the epoch passed the order's last
+// member.
+func membersExhausted(cursor, members uint64, summary string) string {
+	return fmt.Sprintf("no member of the order is left after rank %d of %d (%s)", cursor, members, summary)
+}
+
+// epochExhausted is the NO_CAPACITY error of an order sequence that cannot dispatch again in
+// epoch, with reason (skipsExhausted or membersExhausted). Its RetryHeight is the next epoch's
+// first height when readable. Probe's answer to such a retry and the walk's own failure share it,
+// so both name the same reason and height.
+func (d *Dispatcher) epochExhausted(ctx context.Context, sessionID string, sequence, epoch uint64, reason string) *dispatchdraw.EpochExhaustedError {
+	exhausted := &dispatchdraw.EpochExhaustedError{Epoch: epoch, Reason: reason}
+	if next, err := d.cfg.Drawer.StartHeight(ctx, epoch+1); err == nil {
 		exhausted.RetryHeight = next
 	} else {
-		d.log.Warn("first height of the next epoch unreadable; the retry is refused without it", "session_id", o.SessionID, "order_sequence", o.OrderSequence, "err", err)
+		d.log.Warn("first height of the next epoch unreadable; the NO_CAPACITY answer names no dispatchable height",
+			"session_id", sessionID, "order_sequence", sequence, "err", err)
 	}
 	return exhausted
 }

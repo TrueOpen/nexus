@@ -98,7 +98,7 @@ func TestProbeRefusesARetryPastMaxSkips(t *testing.T) {
 	if !errors.As(err, &exhausted) || exhausted.RetryHeight != nextEpoch.ReferenceHeight {
 		t.Fatalf("probe = %v", err)
 	}
-	want := fmt.Sprintf("%v: epoch %d: the earlier attempts of the sequence took 1 skips, past max_skips 0 (attempts: 0 timed out, 0 unreachable, 1 rejected); dispatchable_height=%d",
+	want := fmt.Sprintf("%v: epoch %d: the attempts of the sequence took 1 skips, past max_skips 0 (attempts: 0 timed out, 0 unreachable, 1 rejected); dispatchable_height=%d",
 		dispatchdraw.ErrNoCapacity, testEpoch.Number, nextEpoch.ReferenceHeight)
 	if err.Error() != want {
 		t.Fatalf("probe = %q\nwant    %q", err, want)
@@ -156,5 +156,41 @@ func TestProbeRetryRefusalOnlyWhenCertain(t *testing.T) {
 	e2.d.HandleChainEvent(bound)
 	if err := e2.d.Probe(context.Background(), retry); err != nil {
 		t.Fatalf("probe after a binding change = %v", err)
+	}
+}
+
+// The walk's own failure names the same reason and next-epoch height as Probe's refusal of a
+// retry, for an order that passed its last member and for one past max_skips.
+func TestWalkExhaustionNamesTheRetryHeight(t *testing.T) {
+	cases := []struct {
+		name     string
+		maxSkips uint32
+		rejects  int
+		want     string
+	}{
+		{"last member", 10, 3, "no member of the order is left after rank 3 of 3 (attempts: 0 timed out, 0 unreachable, 3 rejected)"},
+		{"max skips", 0, 1, "the attempts of the sequence took 1 skips, past max_skips 0 (attempts: 0 timed out, 0 unreachable, 1 rejected)"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newEnv(t)
+			e.d.SetParams(Params{MaxSkips: tc.maxSkips, Sticky: e.params.Sticky, MaxRosterBytes: testRosterCap, MaxDrawAttempts: 64})
+			s := e.session(0xaa, 0)
+			e.dispatch(e.order(s, 0, 1))
+			for range tc.rejects {
+				e.reject()
+			}
+			failed := e.observer.snapshot().failed
+			if len(failed) != 1 {
+				t.Fatalf("failed = %v", failed)
+			}
+			var exhausted *dispatchdraw.EpochExhaustedError
+			if !errors.Is(failed[0], dispatchdraw.ErrNoCapacity) || !errors.As(failed[0], &exhausted) {
+				t.Fatalf("walk failure = %v", failed[0])
+			}
+			if exhausted.Epoch != testEpoch.Number || exhausted.RetryHeight != nextEpoch.ReferenceHeight || exhausted.Reason != tc.want {
+				t.Fatalf("exhausted = %+v", exhausted)
+			}
+		})
 	}
 }
