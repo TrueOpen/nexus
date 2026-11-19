@@ -428,13 +428,13 @@ func TestFinalizeTaskResultRejectsIncompleteBundle(t *testing.T) {
 	f.requireFinalizeRejected(t, EvidenceKindWorkerTokenOpening, ErrNotFound, "not stored")
 }
 
-// A plaintext receipt carries exactly the two Worker commitments: one alone is refused, even for the
-// bundle it names.
+// A plaintext receipt carries the two Worker commitments (and optionally the anchor opening commitment
+// after them): one alone is refused, even for the bundle it names.
 func TestFinalizeTaskResultRejectsSingleCommitment(t *testing.T) {
 	f := newFinalizeFixture(t)
 	f.receipt.EvidenceCommitments = f.receipt.EvidenceCommitments[:1]
 	f.resignReceipt(t)
-	f.requireFinalizeRejected(t, EvidenceKindWorkerValueOpening, ErrMalformed, "exactly WORKER_VALUE_OPENING then WORKER_TOKEN_OPENING")
+	f.requireFinalizeRejected(t, EvidenceKindWorkerValueOpening, ErrMalformed, "WORKER_VALUE_OPENING then WORKER_TOKEN_OPENING")
 }
 
 // Encryption is not active: a receipt with a nonzero or empty key commitment is refused.

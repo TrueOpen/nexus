@@ -53,6 +53,19 @@ const (
 	// MsgSubmitVerifierHandraisesProcedure is the fully-qualified name of the Msg's
 	// SubmitVerifierHandraises RPC.
 	MsgSubmitVerifierHandraisesProcedure = "/task.v1.Msg/SubmitVerifierHandraises"
+	// MsgSubmitAnchorOpeningProcedure is the fully-qualified name of the Msg's SubmitAnchorOpening RPC.
+	MsgSubmitAnchorOpeningProcedure = "/task.v1.Msg/SubmitAnchorOpening"
+	// MsgSubmitAnchorProofProcedure is the fully-qualified name of the Msg's SubmitAnchorProof RPC.
+	MsgSubmitAnchorProofProcedure = "/task.v1.Msg/SubmitAnchorProof"
+	// MsgSubmitAnchorAuditResultProcedure is the fully-qualified name of the Msg's
+	// SubmitAnchorAuditResult RPC.
+	MsgSubmitAnchorAuditResultProcedure = "/task.v1.Msg/SubmitAnchorAuditResult"
+	// MsgSubmitAnchorValidatorVoteProcedure is the fully-qualified name of the Msg's
+	// SubmitAnchorValidatorVote RPC.
+	MsgSubmitAnchorValidatorVoteProcedure = "/task.v1.Msg/SubmitAnchorValidatorVote"
+	// MsgRegisterAnchorVoteKeyProcedure is the fully-qualified name of the Msg's RegisterAnchorVoteKey
+	// RPC.
+	MsgRegisterAnchorVoteKeyProcedure = "/task.v1.Msg/RegisterAnchorVoteKey"
 	// MsgReportDataUnavailableProcedure is the fully-qualified name of the Msg's ReportDataUnavailable
 	// RPC.
 	MsgReportDataUnavailableProcedure = "/task.v1.Msg/ReportDataUnavailable"
@@ -129,6 +142,16 @@ type MsgClient interface {
 	// deleted MsgOpenVerify.
 	// SubmitVerifierHandraises executes the SubmitVerifierHandraises operation.
 	SubmitVerifierHandraises(context.Context, *connect.Request[v1.MsgSubmitVerifierHandraises]) (*connect.Response[v1.MsgSubmitVerifierHandraisesResponse], error)
+	// SubmitAnchorOpening records the winner Worker's opening of the sampled anchor positions (ADR-0040).
+	SubmitAnchorOpening(context.Context, *connect.Request[v1.MsgSubmitAnchorOpening]) (*connect.Response[v1.MsgSubmitAnchorOpeningResponse], error)
+	// SubmitAnchorProof records the winner Worker's proof package over its opening (ADR-0040 v2).
+	SubmitAnchorProof(context.Context, *connect.Request[v1.MsgSubmitAnchorProof]) (*connect.Response[v1.MsgSubmitAnchorProofResponse], error)
+	// SubmitAnchorAuditResult records a selected Verifier's anchor audit verdicts (ADR-0040).
+	SubmitAnchorAuditResult(context.Context, *connect.Request[v1.MsgSubmitAnchorAuditResult]) (*connect.Response[v1.MsgSubmitAnchorAuditResultResponse], error)
+	// SubmitAnchorValidatorVote records a bonded validator's verdict on the Worker's anchor proof (ADR-0040 v4).
+	SubmitAnchorValidatorVote(context.Context, *connect.Request[v1.MsgSubmitAnchorValidatorVote]) (*connect.Response[v1.MsgSubmitAnchorValidatorVoteResponse], error)
+	// RegisterAnchorVoteKey delegates a validator's anchor votes to a hot vote address (ADR-0040 v6).
+	RegisterAnchorVoteKey(context.Context, *connect.Request[v1.MsgRegisterAnchorVoteKey]) (*connect.Response[v1.MsgRegisterAnchorVoteKeyResponse], error)
 	// ReportDataUnavailable records one selected Verifier's data-availability report.
 	ReportDataUnavailable(context.Context, *connect.Request[v1.MsgReportDataUnavailable]) (*connect.Response[v1.MsgReportDataUnavailableResponse], error)
 	// SubmitBuilderEvidence accepts one closed typed objective Builder proof.
@@ -234,6 +257,36 @@ func NewMsgClient(httpClient connect.HTTPClient, baseURL string, opts ...connect
 			httpClient,
 			baseURL+MsgSubmitVerifierHandraisesProcedure,
 			connect.WithSchema(msgMethods.ByName("SubmitVerifierHandraises")),
+			connect.WithClientOptions(opts...),
+		),
+		submitAnchorOpening: connect.NewClient[v1.MsgSubmitAnchorOpening, v1.MsgSubmitAnchorOpeningResponse](
+			httpClient,
+			baseURL+MsgSubmitAnchorOpeningProcedure,
+			connect.WithSchema(msgMethods.ByName("SubmitAnchorOpening")),
+			connect.WithClientOptions(opts...),
+		),
+		submitAnchorProof: connect.NewClient[v1.MsgSubmitAnchorProof, v1.MsgSubmitAnchorProofResponse](
+			httpClient,
+			baseURL+MsgSubmitAnchorProofProcedure,
+			connect.WithSchema(msgMethods.ByName("SubmitAnchorProof")),
+			connect.WithClientOptions(opts...),
+		),
+		submitAnchorAuditResult: connect.NewClient[v1.MsgSubmitAnchorAuditResult, v1.MsgSubmitAnchorAuditResultResponse](
+			httpClient,
+			baseURL+MsgSubmitAnchorAuditResultProcedure,
+			connect.WithSchema(msgMethods.ByName("SubmitAnchorAuditResult")),
+			connect.WithClientOptions(opts...),
+		),
+		submitAnchorValidatorVote: connect.NewClient[v1.MsgSubmitAnchorValidatorVote, v1.MsgSubmitAnchorValidatorVoteResponse](
+			httpClient,
+			baseURL+MsgSubmitAnchorValidatorVoteProcedure,
+			connect.WithSchema(msgMethods.ByName("SubmitAnchorValidatorVote")),
+			connect.WithClientOptions(opts...),
+		),
+		registerAnchorVoteKey: connect.NewClient[v1.MsgRegisterAnchorVoteKey, v1.MsgRegisterAnchorVoteKeyResponse](
+			httpClient,
+			baseURL+MsgRegisterAnchorVoteKeyProcedure,
+			connect.WithSchema(msgMethods.ByName("RegisterAnchorVoteKey")),
 			connect.WithClientOptions(opts...),
 		),
 		reportDataUnavailable: connect.NewClient[v1.MsgReportDataUnavailable, v1.MsgReportDataUnavailableResponse](
@@ -369,6 +422,11 @@ type msgClient struct {
 	submitWorkerEvidence            *connect.Client[v1.MsgSubmitWorkerEvidence, v1.MsgSubmitWorkerEvidenceResponse]
 	submitVerifierValueEvidence     *connect.Client[v1.MsgSubmitVerifierValueEvidence, v1.MsgSubmitVerifierValueEvidenceResponse]
 	submitVerifierHandraises        *connect.Client[v1.MsgSubmitVerifierHandraises, v1.MsgSubmitVerifierHandraisesResponse]
+	submitAnchorOpening             *connect.Client[v1.MsgSubmitAnchorOpening, v1.MsgSubmitAnchorOpeningResponse]
+	submitAnchorProof               *connect.Client[v1.MsgSubmitAnchorProof, v1.MsgSubmitAnchorProofResponse]
+	submitAnchorAuditResult         *connect.Client[v1.MsgSubmitAnchorAuditResult, v1.MsgSubmitAnchorAuditResultResponse]
+	submitAnchorValidatorVote       *connect.Client[v1.MsgSubmitAnchorValidatorVote, v1.MsgSubmitAnchorValidatorVoteResponse]
+	registerAnchorVoteKey           *connect.Client[v1.MsgRegisterAnchorVoteKey, v1.MsgRegisterAnchorVoteKeyResponse]
 	reportDataUnavailable           *connect.Client[v1.MsgReportDataUnavailable, v1.MsgReportDataUnavailableResponse]
 	submitBuilderEvidence           *connect.Client[v1.MsgSubmitBuilderEvidence, v11.BuilderObjectiveEvidenceReceiptV2]
 	submitVerifyCommit              *connect.Client[v1.MsgSubmitVerifyCommit, v1.MsgSubmitVerifyCommitResponse]
@@ -429,6 +487,31 @@ func (c *msgClient) SubmitVerifierValueEvidence(ctx context.Context, req *connec
 // SubmitVerifierHandraises calls task.v1.Msg.SubmitVerifierHandraises.
 func (c *msgClient) SubmitVerifierHandraises(ctx context.Context, req *connect.Request[v1.MsgSubmitVerifierHandraises]) (*connect.Response[v1.MsgSubmitVerifierHandraisesResponse], error) {
 	return c.submitVerifierHandraises.CallUnary(ctx, req)
+}
+
+// SubmitAnchorOpening calls task.v1.Msg.SubmitAnchorOpening.
+func (c *msgClient) SubmitAnchorOpening(ctx context.Context, req *connect.Request[v1.MsgSubmitAnchorOpening]) (*connect.Response[v1.MsgSubmitAnchorOpeningResponse], error) {
+	return c.submitAnchorOpening.CallUnary(ctx, req)
+}
+
+// SubmitAnchorProof calls task.v1.Msg.SubmitAnchorProof.
+func (c *msgClient) SubmitAnchorProof(ctx context.Context, req *connect.Request[v1.MsgSubmitAnchorProof]) (*connect.Response[v1.MsgSubmitAnchorProofResponse], error) {
+	return c.submitAnchorProof.CallUnary(ctx, req)
+}
+
+// SubmitAnchorAuditResult calls task.v1.Msg.SubmitAnchorAuditResult.
+func (c *msgClient) SubmitAnchorAuditResult(ctx context.Context, req *connect.Request[v1.MsgSubmitAnchorAuditResult]) (*connect.Response[v1.MsgSubmitAnchorAuditResultResponse], error) {
+	return c.submitAnchorAuditResult.CallUnary(ctx, req)
+}
+
+// SubmitAnchorValidatorVote calls task.v1.Msg.SubmitAnchorValidatorVote.
+func (c *msgClient) SubmitAnchorValidatorVote(ctx context.Context, req *connect.Request[v1.MsgSubmitAnchorValidatorVote]) (*connect.Response[v1.MsgSubmitAnchorValidatorVoteResponse], error) {
+	return c.submitAnchorValidatorVote.CallUnary(ctx, req)
+}
+
+// RegisterAnchorVoteKey calls task.v1.Msg.RegisterAnchorVoteKey.
+func (c *msgClient) RegisterAnchorVoteKey(ctx context.Context, req *connect.Request[v1.MsgRegisterAnchorVoteKey]) (*connect.Response[v1.MsgRegisterAnchorVoteKeyResponse], error) {
+	return c.registerAnchorVoteKey.CallUnary(ctx, req)
 }
 
 // ReportDataUnavailable calls task.v1.Msg.ReportDataUnavailable.
@@ -553,6 +636,16 @@ type MsgHandler interface {
 	// deleted MsgOpenVerify.
 	// SubmitVerifierHandraises executes the SubmitVerifierHandraises operation.
 	SubmitVerifierHandraises(context.Context, *connect.Request[v1.MsgSubmitVerifierHandraises]) (*connect.Response[v1.MsgSubmitVerifierHandraisesResponse], error)
+	// SubmitAnchorOpening records the winner Worker's opening of the sampled anchor positions (ADR-0040).
+	SubmitAnchorOpening(context.Context, *connect.Request[v1.MsgSubmitAnchorOpening]) (*connect.Response[v1.MsgSubmitAnchorOpeningResponse], error)
+	// SubmitAnchorProof records the winner Worker's proof package over its opening (ADR-0040 v2).
+	SubmitAnchorProof(context.Context, *connect.Request[v1.MsgSubmitAnchorProof]) (*connect.Response[v1.MsgSubmitAnchorProofResponse], error)
+	// SubmitAnchorAuditResult records a selected Verifier's anchor audit verdicts (ADR-0040).
+	SubmitAnchorAuditResult(context.Context, *connect.Request[v1.MsgSubmitAnchorAuditResult]) (*connect.Response[v1.MsgSubmitAnchorAuditResultResponse], error)
+	// SubmitAnchorValidatorVote records a bonded validator's verdict on the Worker's anchor proof (ADR-0040 v4).
+	SubmitAnchorValidatorVote(context.Context, *connect.Request[v1.MsgSubmitAnchorValidatorVote]) (*connect.Response[v1.MsgSubmitAnchorValidatorVoteResponse], error)
+	// RegisterAnchorVoteKey delegates a validator's anchor votes to a hot vote address (ADR-0040 v6).
+	RegisterAnchorVoteKey(context.Context, *connect.Request[v1.MsgRegisterAnchorVoteKey]) (*connect.Response[v1.MsgRegisterAnchorVoteKeyResponse], error)
 	// ReportDataUnavailable records one selected Verifier's data-availability report.
 	ReportDataUnavailable(context.Context, *connect.Request[v1.MsgReportDataUnavailable]) (*connect.Response[v1.MsgReportDataUnavailableResponse], error)
 	// SubmitBuilderEvidence accepts one closed typed objective Builder proof.
@@ -654,6 +747,36 @@ func NewMsgHandler(svc MsgHandler, opts ...connect.HandlerOption) (string, http.
 		MsgSubmitVerifierHandraisesProcedure,
 		svc.SubmitVerifierHandraises,
 		connect.WithSchema(msgMethods.ByName("SubmitVerifierHandraises")),
+		connect.WithHandlerOptions(opts...),
+	)
+	msgSubmitAnchorOpeningHandler := connect.NewUnaryHandler(
+		MsgSubmitAnchorOpeningProcedure,
+		svc.SubmitAnchorOpening,
+		connect.WithSchema(msgMethods.ByName("SubmitAnchorOpening")),
+		connect.WithHandlerOptions(opts...),
+	)
+	msgSubmitAnchorProofHandler := connect.NewUnaryHandler(
+		MsgSubmitAnchorProofProcedure,
+		svc.SubmitAnchorProof,
+		connect.WithSchema(msgMethods.ByName("SubmitAnchorProof")),
+		connect.WithHandlerOptions(opts...),
+	)
+	msgSubmitAnchorAuditResultHandler := connect.NewUnaryHandler(
+		MsgSubmitAnchorAuditResultProcedure,
+		svc.SubmitAnchorAuditResult,
+		connect.WithSchema(msgMethods.ByName("SubmitAnchorAuditResult")),
+		connect.WithHandlerOptions(opts...),
+	)
+	msgSubmitAnchorValidatorVoteHandler := connect.NewUnaryHandler(
+		MsgSubmitAnchorValidatorVoteProcedure,
+		svc.SubmitAnchorValidatorVote,
+		connect.WithSchema(msgMethods.ByName("SubmitAnchorValidatorVote")),
+		connect.WithHandlerOptions(opts...),
+	)
+	msgRegisterAnchorVoteKeyHandler := connect.NewUnaryHandler(
+		MsgRegisterAnchorVoteKeyProcedure,
+		svc.RegisterAnchorVoteKey,
+		connect.WithSchema(msgMethods.ByName("RegisterAnchorVoteKey")),
 		connect.WithHandlerOptions(opts...),
 	)
 	msgReportDataUnavailableHandler := connect.NewUnaryHandler(
@@ -794,6 +917,16 @@ func NewMsgHandler(svc MsgHandler, opts ...connect.HandlerOption) (string, http.
 			msgSubmitVerifierValueEvidenceHandler.ServeHTTP(w, r)
 		case MsgSubmitVerifierHandraisesProcedure:
 			msgSubmitVerifierHandraisesHandler.ServeHTTP(w, r)
+		case MsgSubmitAnchorOpeningProcedure:
+			msgSubmitAnchorOpeningHandler.ServeHTTP(w, r)
+		case MsgSubmitAnchorProofProcedure:
+			msgSubmitAnchorProofHandler.ServeHTTP(w, r)
+		case MsgSubmitAnchorAuditResultProcedure:
+			msgSubmitAnchorAuditResultHandler.ServeHTTP(w, r)
+		case MsgSubmitAnchorValidatorVoteProcedure:
+			msgSubmitAnchorValidatorVoteHandler.ServeHTTP(w, r)
+		case MsgRegisterAnchorVoteKeyProcedure:
+			msgRegisterAnchorVoteKeyHandler.ServeHTTP(w, r)
 		case MsgReportDataUnavailableProcedure:
 			msgReportDataUnavailableHandler.ServeHTTP(w, r)
 		case MsgSubmitBuilderEvidenceProcedure:
@@ -873,6 +1006,26 @@ func (UnimplementedMsgHandler) SubmitVerifierValueEvidence(context.Context, *con
 
 func (UnimplementedMsgHandler) SubmitVerifierHandraises(context.Context, *connect.Request[v1.MsgSubmitVerifierHandraises]) (*connect.Response[v1.MsgSubmitVerifierHandraisesResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("task.v1.Msg.SubmitVerifierHandraises is not implemented"))
+}
+
+func (UnimplementedMsgHandler) SubmitAnchorOpening(context.Context, *connect.Request[v1.MsgSubmitAnchorOpening]) (*connect.Response[v1.MsgSubmitAnchorOpeningResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("task.v1.Msg.SubmitAnchorOpening is not implemented"))
+}
+
+func (UnimplementedMsgHandler) SubmitAnchorProof(context.Context, *connect.Request[v1.MsgSubmitAnchorProof]) (*connect.Response[v1.MsgSubmitAnchorProofResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("task.v1.Msg.SubmitAnchorProof is not implemented"))
+}
+
+func (UnimplementedMsgHandler) SubmitAnchorAuditResult(context.Context, *connect.Request[v1.MsgSubmitAnchorAuditResult]) (*connect.Response[v1.MsgSubmitAnchorAuditResultResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("task.v1.Msg.SubmitAnchorAuditResult is not implemented"))
+}
+
+func (UnimplementedMsgHandler) SubmitAnchorValidatorVote(context.Context, *connect.Request[v1.MsgSubmitAnchorValidatorVote]) (*connect.Response[v1.MsgSubmitAnchorValidatorVoteResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("task.v1.Msg.SubmitAnchorValidatorVote is not implemented"))
+}
+
+func (UnimplementedMsgHandler) RegisterAnchorVoteKey(context.Context, *connect.Request[v1.MsgRegisterAnchorVoteKey]) (*connect.Response[v1.MsgRegisterAnchorVoteKeyResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("task.v1.Msg.RegisterAnchorVoteKey is not implemented"))
 }
 
 func (UnimplementedMsgHandler) ReportDataUnavailable(context.Context, *connect.Request[v1.MsgReportDataUnavailable]) (*connect.Response[v1.MsgReportDataUnavailableResponse], error) {

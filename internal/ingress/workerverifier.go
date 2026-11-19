@@ -245,8 +245,9 @@ func inferReceiptFromPB(m *nexusv1.SubmitInferReceiptRequest, chainID string) (t
 		CiphertextOutputRoot:      append([]byte(nil), receiptPB.GetCiphertextOutputRoot()...),
 		DispatchTicketHash:        append([]byte(nil), receiptPB.GetDispatchTicketHash()...),
 	}
-	// Encryption is not active: the receipt carries exactly the two Worker commitments and every
-	// encryption field is 32 zero bytes.
+	// Encryption is not active: the receipt carries the two Worker commitments, optionally followed by
+	// the anchor opening commitment (EVIDENCE_KIND_WORKER_ANCHOR_OPENING), and every encryption field
+	// is 32 zero bytes.
 	if err := nodecontract.ValidatePlaintextInferReceiptV3(receiptPB); err != nil {
 		return types.InferReceiptSubmission{}, fmt.Errorf("%w: %v", types.ErrInvalidArgument, err)
 	}
