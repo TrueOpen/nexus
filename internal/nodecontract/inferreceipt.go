@@ -202,8 +202,9 @@ func InferReceiptSigningDigest(receipt *taskv1.InferReceiptV3) ([32]byte, error)
 	), nil
 }
 
-// ValidatePlaintextInferReceiptV3 is the admission rule for a plaintext task: the receipt carries exactly
-// the two Worker commitments (value opening, then token opening, by EvidenceKind value), all four
+// ValidatePlaintextInferReceiptV3 is the admission rule for a plaintext task: the receipt carries
+// the two Worker commitments (value opening, then token opening, by EvidenceKind value), optionally
+// followed by the anchor opening commitment (EVIDENCE_KIND_WORKER_ANCHOR_OPENING), all four
 // encryption fields are 32 zero bytes, and generated_token_count is within the token id bound (it sizes
 // the Worker's value tree). Empty values are rejected rather than padded: the Keeper hashes the bytes
 // as sent.

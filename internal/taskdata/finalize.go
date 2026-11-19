@@ -159,7 +159,8 @@ func (s *Service) finalizeTaskResult(ctx context.Context, request FinalizeResult
 	if err := s.authorizer.verifyInferReceipt(ctx, task, request.TaskHash, scope, receipt, receiptHash); err != nil {
 		return FinalizeResultOutcome{}, err
 	}
-	// A plaintext receipt carries exactly the two Worker commitments and no encryption material.
+	// A plaintext receipt carries the two Worker commitments, optionally followed by the anchor opening
+	// commitment, and no encryption material.
 	if err := validatePlaintextReceipt(receipt); err != nil {
 		return FinalizeResultOutcome{}, err
 	}
