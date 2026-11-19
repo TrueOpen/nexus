@@ -42,7 +42,11 @@ const (
 // not before its record deadline, so with the chain default record_deadline_blocks of 20 its
 // deadline D is at least head+17 and it never starts inside head < D < head+6; only takeover
 // orders, which skip the freshness check, can. What the larger lead costs is the walk window,
-// which shrinks from about 15-19 blocks to 11-15.
+// which shrinks from about 15-19 blocks to 11-15. The same lead applies when another Builder
+// registers a takeover of the session: this Builder's in-flight orders then have their deadline
+// lowered to the activation height (registration height + record_deadline_blocks, see
+// liveRecordDeadline), so they must be accepted at least recordLeadBlocks before it, a window of
+// about 14 blocks instead of 18.
 const recordLeadBlocks = 6
 
 // TooLateToRecord reports whether an entry accepted with the chain head at head can no longer be

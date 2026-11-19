@@ -1145,7 +1145,7 @@ func TestRegisteredTakeoverBoundsTheRecordDeadline(t *testing.T) {
 	for _, tc := range []struct {
 		activation uint64
 		accepted   bool
-	}{{testESH + 1, false}, {testESH + 2, true}} {
+	}{{testESH + recordLeadBlocks - 1, false}, {testESH + recordLeadBlocks, true}} {
 		e := newEnv(t)
 		s := e.session(0xaa, 0)
 		o := e.order(s, 0, 1)
