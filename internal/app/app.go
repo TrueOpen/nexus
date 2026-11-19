@@ -186,11 +186,13 @@ type chainEventOptions struct {
 	protocolOnHub bool
 }
 
-func newChainEventOptions(store kv.Store, mode config.AuthorityMode) chainEventOptions {
+// newChainEventOptions builds the chain client options; heightPoll is the Task node height poll
+// interval that drives new-block events.
+func newChainEventOptions(store kv.Store, mode config.AuthorityMode, heightPoll time.Duration) chainEventOptions {
 	options := chainEventOptions{
 		task: []chaincli.Option{
 			chaincli.WithEventStore(store),
-			chaincli.WithHeightEvents(2 * time.Second),
+			chaincli.WithHeightEvents(heightPoll),
 		},
 	}
 	if mode == config.AuthorityHub {
@@ -211,6 +213,9 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 		return nil, err
 	}
 	if err := cfg.Chain.TxConfirm.Validate(); err != nil {
+		return nil, err
+	}
+	if err := cfg.Chain.ValidateHeightPoll(); err != nil {
 		return nil, err
 	}
 	if err := cfg.Chain.ValidateFee(); err != nil {
@@ -249,7 +254,9 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 		_ = store.Close()
 		return nil, fmt.Errorf("builder authority: %w", err)
 	}
-	eventOptions := newChainEventOptions(store, authority.Mode)
+	heightPoll := cfg.Chain.HeightPoll()
+	log.Info("chain height poll", "interval", heightPoll.String())
+	eventOptions := newChainEventOptions(store, authority.Mode, heightPoll)
 	// Keys owners register on their sessions: the cache follows the task event streams of the
 	// sessions this Builder tracks.
 	sessionKeys, err := newRegisteredKeys(cfg.Ingress)

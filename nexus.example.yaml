@@ -202,6 +202,11 @@ chain:
   # gas still meets the node's minimum-gas-prices. Set it to at least that minimum on any chain
   # with a non-zero minimum-gas-prices; empty or 0 keeps the fixed fee_amount.
   gas_price: ""
+  # How often the Task node's latest height is polled (env NEXUS_CHAIN_HEIGHT_POLL_INTERVAL); new
+  # block events drive record packing, dispatch, verifier proposals and reconcile. Keep it about
+  # the block interval (0.5s blocks): a longer poll skips heights, so records and proposals go out
+  # later. 0 or unset takes 500ms; non-zero values must be within 100ms..10s.
+  height_poll_interval: 500ms
   # MsgSweepDeadline is the single public deadline runner:
   # any account may submit it and the runner pays its own gas, so acting as that
   # runner is an operational choice, not a protocol duty. Default off — nexus only

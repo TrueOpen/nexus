@@ -361,6 +361,7 @@ Environment variables can still override YAML or keep an existing deployment sty
 | `NEXUS_OUTPUT_SWEEP_INTERVAL` | `1m` | Sweep interval for plaintext expiry and tombstone cleanup |
 | `NEXUS_CHAIN_GRPC` | `localhost:9090` | Task node gRPC; used for queries, tx broadcast, TaskEventService subscription and height polling |
 | `NEXUS_CHAIN_ID` | `trueopen-localnet-1` | Chain ID |
+| `NEXUS_CHAIN_HEIGHT_POLL_INTERVAL` | `500ms` | Task node latest-height poll interval that drives new-block events (record packing, dispatch, verifier proposals, reconcile); keep it about the block interval; 0 takes the default, non-zero must be within 100ms..10s |
 | `NEXUS_HUB_ENABLED` | `false` | Enable a standalone Hub; when enabled, Builder registration, stake and unbond go only to the Hub |
 | `NEXUS_HUB_GRPC` | (empty) | Hub node gRPC; required when `NEXUS_HUB_ENABLED=true`, also used for protocol event subscription |
 | `NEXUS_HUB_CHAIN_ID` | (empty) | Hub chain ID; required when the Hub is enabled |

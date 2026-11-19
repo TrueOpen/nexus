@@ -208,7 +208,8 @@ func TestVerifierProposalFlushesBatchAtClose(t *testing.T) {
 	if n := fx.attempts(); n != 0 {
 		t.Fatalf("%d submissions while batching, want 0", n)
 	}
-	fx.fsm.onHeight(197) // the next block, 198, is within the lead (2) of the close height 200
+	// The next block is exactly verifierProposalCloseLeadBlocks before the close height.
+	fx.fsm.onHeight(readyWindow.BuilderProposalCloseHeight - verifierProposalCloseLeadBlocks - 1)
 	if got := proposalOperators(t, fx.proposed()); len(got) != 1 {
 		t.Fatalf("the batch must be flushed before the close, got %d hand-raises on chain", len(got))
 	}
@@ -224,11 +225,12 @@ func TestVerifierProposalFlushSurvivesSkippedBlocks(t *testing.T) {
 	fx.fsm.onInferReceiptAccepted()
 	fx.setWindow(readyWindow, 150)
 	fx.deliver(testOperator("verifier-1"))
-	fx.fsm.onHeight(195) // next 196: not yet within the lead
+	closeHeight := readyWindow.BuilderProposalCloseHeight
+	fx.fsm.onHeight(closeHeight - verifierProposalCloseLeadBlocks - 2) // the next block is one short of the lead
 	if n := fx.attempts(); n != 0 {
 		t.Fatalf("%d submissions outside the lead, want 0", n)
 	}
-	fx.fsm.onHeight(199) // 195 -> 199 skips every block of the lead; next 200 is still legal
+	fx.fsm.onHeight(closeHeight - 1) // skips every block of the lead; the next block, the close, is still legal
 	if got := proposalOperators(t, fx.proposed()); len(got) != 1 {
 		t.Fatalf("the batch must be flushed after skipped blocks, got %d hand-raises on chain", len(got))
 	}

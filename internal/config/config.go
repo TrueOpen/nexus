@@ -450,6 +450,42 @@ type ChainConfig struct {
 	DeadlineSweep DeadlineSweepConfig `yaml:"deadline_sweep"`
 	// TxConfirm bounds how long a Verifier commit or result relay waits for its block result.
 	TxConfirm TxConfirmConfig `yaml:"tx_confirm"`
+	// HeightPollInterval is how often the Task node's latest height is polled to drive new-block
+	// events (record packing, dispatch head, verifier proposal flush, reconcile). Keep it about the
+	// block interval: a longer poll skips heights, so records and proposals go out later. Zero
+	// takes DefaultHeightPollInterval.
+	HeightPollInterval time.Duration `yaml:"height_poll_interval"`
+}
+
+// DefaultHeightPollInterval is about one block at 0.5 s blocks.
+const DefaultHeightPollInterval = 500 * time.Millisecond
+
+// Bounds of a non-zero chain.height_poll_interval; values outside them are taken as a unit mistake.
+const (
+	MinHeightPollInterval = 100 * time.Millisecond
+	MaxHeightPollInterval = 10 * time.Second
+)
+
+// HeightPoll returns the effective height poll interval: HeightPollInterval, or the default when
+// it is zero.
+func (c ChainConfig) HeightPoll() time.Duration {
+	if c.HeightPollInterval == 0 {
+		return DefaultHeightPollInterval
+	}
+	return c.HeightPollInterval
+}
+
+// ValidateHeightPoll checks chain.height_poll_interval: zero (the default) or within
+// [MinHeightPollInterval, MaxHeightPollInterval].
+func (c ChainConfig) ValidateHeightPoll() error {
+	v := c.HeightPollInterval
+	if v < 0 {
+		return fmt.Errorf("chain.height_poll_interval must not be negative")
+	}
+	if v != 0 && (v < MinHeightPollInterval || v > MaxHeightPollInterval) {
+		return fmt.Errorf("chain.height_poll_interval %s must be between %s and %s (0 takes the default %s)", v, MinHeightPollInterval, MaxHeightPollInterval, DefaultHeightPollInterval)
+	}
+	return nil
 }
 
 // gasPricePattern is a plain non-negative decimal.
@@ -653,6 +689,8 @@ func defaults() Config {
 			ChainID:   "trueopen-localnet-1",
 			GasLimit:  200000,
 			TxConfirm: TxConfirmConfig{BlockInterval: DefaultTxConfirmBlockInterval, WaitBlocks: DefaultTxConfirmWaitBlocks},
+
+			HeightPollInterval: DefaultHeightPollInterval,
 		},
 		Hub: HubConfig{
 			GasLimit: 200000,
@@ -728,6 +766,7 @@ func applyEnv(cfg *Config) {
 	cfg.Chain.DeadlineSweep.GraceBlocks = envUint64("NEXUS_DEADLINE_SWEEP_GRACE_BLOCKS", cfg.Chain.DeadlineSweep.GraceBlocks)
 	cfg.Chain.TxConfirm.BlockInterval = envDuration("NEXUS_TX_CONFIRM_BLOCK_INTERVAL", cfg.Chain.TxConfirm.BlockInterval)
 	cfg.Chain.TxConfirm.WaitBlocks = envUint64("NEXUS_TX_CONFIRM_WAIT_BLOCKS", cfg.Chain.TxConfirm.WaitBlocks)
+	cfg.Chain.HeightPollInterval = envDuration("NEXUS_CHAIN_HEIGHT_POLL_INTERVAL", cfg.Chain.HeightPollInterval)
 	cfg.Hub.Enabled = envBool("NEXUS_HUB_ENABLED", cfg.Hub.Enabled)
 	cfg.Hub.GRPCAddr = env("NEXUS_HUB_GRPC", cfg.Hub.GRPCAddr)
 	cfg.Hub.ChainID = env("NEXUS_HUB_CHAIN_ID", cfg.Hub.ChainID)

@@ -172,6 +172,54 @@ func TestTxConfirmConfigBoundsTheWait(t *testing.T) {
 	}
 }
 
+// The height poll defaults to about one block; zero takes the default, and values far outside a
+// block interval are rejected as unit mistakes.
+func TestChainHeightPollInterval(t *testing.T) {
+	if got := defaults().Chain.HeightPollInterval; got != 500*time.Millisecond {
+		t.Fatalf("default height_poll_interval = %s, want 500ms", got)
+	}
+	example, err := LoadFile(filepath.Join("..", "..", "nexus.example.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if example.Chain.HeightPollInterval != DefaultHeightPollInterval {
+		t.Fatalf("example height_poll_interval = %s, want the default %s", example.Chain.HeightPollInterval, DefaultHeightPollInterval)
+	}
+	if got := (ChainConfig{}).HeightPoll(); got != DefaultHeightPollInterval {
+		t.Fatalf("zero height_poll_interval takes %s, want the default", got)
+	}
+	if got := (ChainConfig{HeightPollInterval: time.Second}).HeightPoll(); got != time.Second {
+		t.Fatalf("height_poll_interval 1s takes %s", got)
+	}
+	for _, valid := range []time.Duration{0, MinHeightPollInterval, DefaultHeightPollInterval, MaxHeightPollInterval} {
+		if err := (ChainConfig{HeightPollInterval: valid}).ValidateHeightPoll(); err != nil {
+			t.Fatalf("%s: %v", valid, err)
+		}
+	}
+	for _, invalid := range []time.Duration{-time.Second, MinHeightPollInterval - time.Millisecond, MaxHeightPollInterval + time.Millisecond} {
+		if err := (ChainConfig{HeightPollInterval: invalid}).ValidateHeightPoll(); err == nil {
+			t.Fatalf("%s accepted", invalid)
+		}
+	}
+
+	path := filepath.Join(t.TempDir(), "nexus.yaml")
+	if err := os.WriteFile(path, []byte("chain:\n  height_poll_interval: 750ms\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := LoadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Chain.HeightPollInterval != 750*time.Millisecond {
+		t.Fatalf("yaml height_poll_interval = %s", cfg.Chain.HeightPollInterval)
+	}
+
+	t.Setenv("NEXUS_CHAIN_HEIGHT_POLL_INTERVAL", "250ms")
+	if got := Load().Chain.HeightPollInterval; got != 250*time.Millisecond {
+		t.Fatalf("environment height_poll_interval = %s", got)
+	}
+}
+
 func TestTaskDataConfigRejectsInvalidCombinations(t *testing.T) {
 	valid := defaults().TaskData
 	tests := map[string]TaskDataConfig{

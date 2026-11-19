@@ -116,11 +116,11 @@ func TestBuilderRegistrationModuleSkippedWithoutSigner(t *testing.T) {
 
 func TestChainEventOptions(t *testing.T) {
 	store := kv.NewMemStore()
-	compatibility := newChainEventOptions(store, config.AuthorityCompatibility)
+	compatibility := newChainEventOptions(store, config.AuthorityCompatibility, config.DefaultHeightPollInterval)
 	if len(compatibility.task) != 3 || len(compatibility.hub) != 0 || compatibility.protocolOnHub {
 		t.Fatalf("compatibility event options = %+v", compatibility)
 	}
-	hub := newChainEventOptions(store, config.AuthorityHub)
+	hub := newChainEventOptions(store, config.AuthorityHub, config.DefaultHeightPollInterval)
 	if len(hub.task) != 2 || len(hub.hub) != 2 || !hub.protocolOnHub {
 		t.Fatalf("hub event options = %+v", hub)
 	}
