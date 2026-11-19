@@ -82,7 +82,7 @@ func (c *Coordinator) TakeoverEnded(sessionID, taskID, code string, height uint6
 	if !fsm.failPendingDetail(code, types.VerdictUnspecified, height, detail) {
 		return
 	}
-	c.abandonTask(taskKey(sessionID, taskID), fsm)
+	c.abandonFailedTask(taskKey(sessionID, taskID), fsm)
 	if dropInput {
 		c.deletePayload(orderInput(fsm.order))
 	}
@@ -102,7 +102,11 @@ func (c *Coordinator) takeoverStage(sessionID, taskID string) string {
 	if !ok {
 		return ""
 	}
-	events := j.snapshot()
+	return takeoverStageOf(j.snapshot())
+}
+
+// takeoverStageOf is the latest takeover event code among events; empty when there is none.
+func takeoverStageOf(events []types.TaskEvent) string {
 	for i := len(events) - 1; i >= 0; i-- {
 		if strings.HasPrefix(events[i].EventCode, "TAKEOVER_") {
 			return events[i].EventCode

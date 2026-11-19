@@ -467,6 +467,7 @@ func New(cfg config.Config, log *slog.Logger) (*App, error) {
 		// object's tombstone.
 		coord.SetAttemptRetention(cfg.TaskData.TombstoneRetentionBlocks)
 	}
+	coord.SetAbandonedTaskRetention(cfg.Dispatch.FailedOrderRetention)
 	if serviceSG != nil && len(cfg.Identity.VRFKeyFiles) > 0 {
 		// Standing handraises and roots are judged on the task chain's height, never below the
 		// dispatcher's head; the Hub reads (pool, beacon, VRF keys, epoch length) go to the

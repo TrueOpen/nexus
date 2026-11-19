@@ -5,6 +5,7 @@ import (
 	"math"
 	"os"
 	"strconv"
+	"time"
 )
 
 // DispatchConfig holds the off-chain parameters of direct dispatch: standing handraises, handraise
@@ -66,6 +67,11 @@ type DispatchConfig struct {
 	// (it carries a whole record or roster). An answer that runs out of gas goes again with more.
 	AnswerGasBase    uint64 `yaml:"answer_gas_base"`
 	AnswerGasPerByte uint64 `yaml:"answer_gas_per_byte"`
+	// FailedOrderRetention is how long an order this Builder acknowledged and then dropped before
+	// it reached the chain (NO_CAPACITY, RECORD_REJECTED, ASSIGN_TIMEOUT, an ended takeover) keeps
+	// its owner and event journal readable through GetTaskEvents and GetTaskStatus. It is a local
+	// record for the user, measured in wall time, and must be positive.
+	FailedOrderRetention time.Duration `yaml:"failed_order_retention"`
 }
 
 // RTTTierConfig is one accept timeout tier: candidates whose RTT is at most MaxRTTMs wait
@@ -99,8 +105,15 @@ func defaultDispatch() DispatchConfig {
 		RecordGasMax:                         DefaultRecordGasMax,
 		AnswerGasBase:                        300_000,
 		AnswerGasPerByte:                     30,
+		FailedOrderRetention:                 DefaultFailedOrderRetention,
 	}
 }
+
+// DefaultFailedOrderRetention is the default dispatch.failed_order_retention.
+const DefaultFailedOrderRetention = 24 * time.Hour
+
+// maxFailedOrderRetention bounds dispatch.failed_order_retention.
+const maxFailedOrderRetention = 30 * 24 * time.Hour
 
 // DefaultRecordGasMax is the record transaction gas cap when dispatch.record_gas_max is unset or 0.
 const DefaultRecordGasMax = 20_000_000
@@ -159,6 +172,8 @@ func (c DispatchConfig) Validate() error {
 			c.RecordGasBase+c.RecordGasPerEntry, maxRecordGas)
 	case c.AnswerGasBase == 0 || c.AnswerGasBase > maxRecordGas || c.AnswerGasPerByte == 0 || c.AnswerGasPerByte > maxRecordGas:
 		return fmt.Errorf("dispatch answer_gas_base and answer_gas_per_byte must be between 1 and %d", maxRecordGas)
+	case c.FailedOrderRetention <= 0 || c.FailedOrderRetention > maxFailedOrderRetention:
+		return fmt.Errorf("dispatch failed_order_retention must be positive and not exceed %s", maxFailedOrderRetention)
 	}
 	for i, tier := range c.AcceptTimeoutMsByRTTTier {
 		if tier.AcceptTimeoutMs == 0 || tier.AcceptTimeoutMs > maxAcceptTimeoutMsByRTTTier {
