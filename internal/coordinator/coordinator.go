@@ -135,6 +135,14 @@ type Coordinator struct {
 	jmu      sync.Mutex
 	journals map[string]*journal // per-task event journal; kept after task close until its tombstone expires
 
+	// abandoned indexes the NSAbandonedTask records by key, with the Unix second each was written
+	// (abandoned.go). amu is taken last: no other lock is acquired while holding it.
+	amu                sync.Mutex
+	abandoned          map[string]int64
+	abandonedRetention time.Duration
+	// now is the wall clock of abandoned task records (time.Now outside tests).
+	now func() time.Time
+
 	identity signer.Signer // Builder account signer (nil = dev mode, no chain transactions)
 	registry BuilderRegistry
 
@@ -431,6 +439,9 @@ func New(log *slog.Logger, chain chaincli.Client, rl relay.Custodian, store kv.S
 		recoveryCleanup:    make(map[string]struct{}),
 		outputFinalized:    make(map[string]struct{}),
 		journals:           make(map[string]*journal),
+		abandoned:          make(map[string]int64),
+		abandonedRetention: DefaultAbandonedTaskRetention,
+		now:                time.Now,
 		active:             newActiveSet(selfAddr),
 		stop:               make(chan struct{}),
 		reconcileRequests:  make(chan reconcileRequest, 512),
@@ -482,13 +493,20 @@ func (c *Coordinator) Start(ctx context.Context) error {
 	if err := c.recoverTasks(ctx); err != nil {
 		return err
 	}
+	if err := c.loadAbandonedTasks(); err != nil {
+		return err
+	}
 	c.startReconcileWorker()
 	c.requestReconcile("coordinator startup")
 
-	c.wg.Add(1)
+	c.wg.Add(2)
 	go func() {
 		defer c.wg.Done()
 		c.eventLoop()
+	}()
+	go func() {
+		defer c.wg.Done()
+		c.runAbandonedTaskSweep()
 	}()
 	c.log.Info("coordinator started")
 	return nil
@@ -588,13 +606,20 @@ func (c *Coordinator) Stop(_ context.Context) error {
 	return nil
 }
 
-// journalFor gets (or creates) a task's event journal.
+// journalFor gets (or creates) a task's event journal. A journal created for a key with an
+// abandoned task record starts from the record's events, so a retry of the sequence after a
+// restart continues the cursor the user already read.
 func (c *Coordinator) journalFor(key string) *journal {
 	c.jmu.Lock()
 	defer c.jmu.Unlock()
 	j, ok := c.journals[key]
 	if !ok {
 		j = newJournal()
+		if record, found, err := c.abandonedRecord(key); err != nil {
+			c.log.Warn("abandoned task record unreadable; its events are not restored", "key", key, "err", err)
+		} else if found {
+			j.restoreEntries(record.Journal)
+		}
 		c.journals[key] = j
 	}
 	return j
@@ -661,9 +686,11 @@ func (c *Coordinator) newFSM(o types.Order) *taskFSM {
 			c.deleteTaskSnapshot(key)
 		},
 	}
+	// The new task supersedes an abandoned record of its key; the journal above continued it.
+	c.clearAbandonedRecord(key)
 	fsm.onAbandon = func() {
 		c.deletePayload(orderInput(o))
-		c.abandonTask(key, fsm)
+		c.abandonFailedTask(key, fsm)
 	}
 	fsm.requestTxCheck = func() {
 		c.requestTaskReconcile(o.SessionID, o.TaskID, 0, "read submitted transaction result")
@@ -1016,6 +1043,11 @@ func (c *Coordinator) TaskOwner(_ context.Context, sessionID, taskID string) (st
 	} else if known {
 		return recipient, nil
 	}
+	if record, found, err := c.abandonedRecord(taskKey(sessionID, taskID)); err != nil {
+		return "", err
+	} else if found {
+		return record.Recipient, nil
+	}
 	return "", types.ErrTaskNotFound
 }
 
@@ -1139,7 +1171,11 @@ func (c *Coordinator) TaskEvents(_ context.Context, sessionID, taskID string, fr
 	j, ok := c.journals[key]
 	c.jmu.Unlock()
 	if !ok {
-		return nil, nil, nil, ErrTaskNotFound
+		// An abandoned task's journal after a restart: restored into the shared map, so a retry
+		// of the sequence appends to the journal this subscriber reads.
+		if j, ok = c.abandonedJournal(key); !ok {
+			return nil, nil, nil, ErrTaskNotFound
+		}
 	}
 	replay, live, cancel := j.subscribe(fromCursor)
 	return replay, live, cancel, nil
@@ -1225,7 +1261,7 @@ func (c *Coordinator) PrepareChallenge(ctx context.Context, sessionID, taskID, _
 func (c *Coordinator) TaskStatus(_ context.Context, sessionID, taskID string) (types.TaskStatus, error) {
 	fsm, ok := c.getFSM(sessionID, taskID)
 	if !ok {
-		return types.TaskStatus{}, ErrTaskNotFound
+		return c.abandonedTaskStatus(sessionID, taskID)
 	}
 	fsm.mu.Lock()
 	pending := fsm.state == types.Pending
@@ -1407,6 +1443,12 @@ func (c *Coordinator) removeTask(key string) string {
 // is kept so the user can see why it was rejected; with no output tombstone nothing releases it (a
 // known, low-volume leak).
 func (c *Coordinator) abandonTask(key string, expected *taskFSM) {
+	c.dropTask(key, expected, false)
+}
+
+// dropTask removes a task that never reached the chain. keepRecord stores its abandoned task
+// record in the same batch that deletes its snapshot, so a crash leaves one or the other.
+func (c *Coordinator) dropTask(key string, expected *taskFSM, keepRecord bool) {
 	c.dropStagedReceipt(key)
 	c.retireAbandonedAttempt(expected.sessionID, expected.taskID)
 	removed := false
@@ -1422,11 +1464,26 @@ func (c *Coordinator) abandonTask(key string, expected *taskFSM) {
 	if trackedKey.SessionID != "" {
 		c.taskEvents.UntrackTaskEvents(trackedKey)
 	}
-	if removed {
-		c.markOrderAbandoned(expected.order)
-		if err := c.kv.Delete(kv.NSTask, key); err != nil {
-			c.log.Warn("abandoned task snapshot delete failed", "key", key, "err", err)
+	if !removed {
+		return
+	}
+	c.markOrderAbandoned(expected.order)
+	if keepRecord {
+		if op, at, ok := c.abandonedRecordOp(key, expected); ok {
+			err := c.kv.WriteBatch(op, kv.WriteOp{NS: kv.NSTask, Key: key, Delete: true})
+			if err == nil {
+				c.amu.Lock()
+				c.abandoned[key] = at
+				c.amu.Unlock()
+				return
+			}
+			// Without the record the task ends as before: its snapshot must still go, or a
+			// restart would bring it back as Pending.
+			c.log.Warn("abandoned task record not written; its events are not kept", "key", key, "err", err)
 		}
+	}
+	if err := c.kv.Delete(kv.NSTask, key); err != nil {
+		c.log.Warn("abandoned task snapshot delete failed", "key", key, "err", err)
 	}
 }
 

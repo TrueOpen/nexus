@@ -154,6 +154,10 @@ dispatch:
   # answer_gas_per_byte per encoded byte of the message. Doubled (up to 8x) after an out-of-gas.
   answer_gas_base: 300000
   answer_gas_per_byte: 30
+  # How long an order acknowledged and then dropped before it reached the chain (NO_CAPACITY,
+  # RECORD_REJECTED, ASSIGN_TIMEOUT, an ended takeover) keeps its events readable by its owner
+  # through GetTaskEvents and GetTaskStatus. Wall time; must be positive.
+  failed_order_retention: 24h
 
 # IngressAPI.SubmitModelSupportConfirmation: Cortex nodes hand this Builder their service-key-signed
 # model support confirmations (one per operator and epoch); the Builder account batches them into

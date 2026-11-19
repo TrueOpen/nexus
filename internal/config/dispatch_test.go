@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestDispatchDefaultsAreValid(t *testing.T) {
@@ -41,14 +42,18 @@ func TestDispatchValidateRejectsInvalidCombinations(t *testing.T) {
 		"accept timeout too long": func(c *DispatchConfig) {
 			c.AcceptTimeoutMsByRTTTier[2].AcceptTimeoutMs = maxAcceptTimeoutMsByRTTTier + 1
 		},
-		"zero accept timeout":       func(c *DispatchConfig) { c.AcceptTimeoutMsByRTTTier[0].AcceptTimeoutMs = 0 },
-		"zero record gas base":      func(c *DispatchConfig) { c.RecordGasBase = 0 },
-		"zero record gas per entry": func(c *DispatchConfig) { c.RecordGasPerEntry = 0 },
-		"record gas too large":      func(c *DispatchConfig) { c.RecordGasPerEntry = maxRecordGas + 1 },
-		"record gas per byte large": func(c *DispatchConfig) { c.RecordGasPerByte = maxRecordGasPerByte + 1 },
-		"zero answer gas base":      func(c *DispatchConfig) { c.AnswerGasBase = 0 },
-		"zero answer gas per byte":  func(c *DispatchConfig) { c.AnswerGasPerByte = 0 },
-		"answer gas too large":      func(c *DispatchConfig) { c.AnswerGasBase = maxRecordGas + 1 },
+		"zero accept timeout":         func(c *DispatchConfig) { c.AcceptTimeoutMsByRTTTier[0].AcceptTimeoutMs = 0 },
+		"zero record gas base":        func(c *DispatchConfig) { c.RecordGasBase = 0 },
+		"zero record gas per entry":   func(c *DispatchConfig) { c.RecordGasPerEntry = 0 },
+		"record gas too large":        func(c *DispatchConfig) { c.RecordGasPerEntry = maxRecordGas + 1 },
+		"record gas per byte large":   func(c *DispatchConfig) { c.RecordGasPerByte = maxRecordGasPerByte + 1 },
+		"zero answer gas base":        func(c *DispatchConfig) { c.AnswerGasBase = 0 },
+		"zero answer gas per byte":    func(c *DispatchConfig) { c.AnswerGasPerByte = 0 },
+		"answer gas too large":        func(c *DispatchConfig) { c.AnswerGasBase = maxRecordGas + 1 },
+		"zero failed order retention": func(c *DispatchConfig) { c.FailedOrderRetention = 0 },
+		"failed order retention too long": func(c *DispatchConfig) {
+			c.FailedOrderRetention = maxFailedOrderRetention + time.Second
+		},
 		"tier rtt not increasing": func(c *DispatchConfig) {
 			c.AcceptTimeoutMsByRTTTier[1].MaxRTTMs = c.AcceptTimeoutMsByRTTTier[0].MaxRTTMs
 		},
@@ -151,6 +156,7 @@ func TestExampleDispatchSettings(t *testing.T) {
 		got.GPURejectRateSuspensionBlocks != want.GPURejectRateSuspensionBlocks || got.BuilderTimeoutRateThreshold != want.BuilderTimeoutRateThreshold ||
 		got.GPURejectRateMinSamples != want.GPURejectRateMinSamples ||
 		got.HandraiseIssuedHeightToleranceBlocks != want.HandraiseIssuedHeightToleranceBlocks ||
+		got.FailedOrderRetention != want.FailedOrderRetention ||
 		len(got.AcceptTimeoutMsByRTTTier) != len(want.AcceptTimeoutMsByRTTTier) {
 		t.Fatalf("example dispatch = %+v, want the defaults %+v", got, want)
 	}
