@@ -160,8 +160,12 @@ type taskFSM struct {
 	// the winner Worker may. verifierProposalClosed records that this Builder is past that height
 	// and stops submitting. Neither is persisted: both are derived from the chain, and after a
 	// restart the next reconciliation reads the window again.
-	verifierWindow         chaincli.VerifierWindow
-	verifierWindowKnown    bool
+	verifierWindow      chaincli.VerifierWindow
+	verifierWindowKnown bool
+	// anchorOnlyRound is set by reconcile when the chain's round 1 assignment selected no
+	// Verifier: the task is verified by the anchor audit alone. It is a chain fact re-read on
+	// every reconciliation, so it is not persisted.
+	anchorOnlyRound        bool
 	verifierProposalClosed bool
 	// verifierRandomnessTried records that the attempt due once the window randomness height has
 	// passed was made, so each new block does not repeat it.
@@ -384,6 +388,9 @@ func (f *taskFSM) acceptInferReceipt(receipt types.InferReceiptSubmission) (bool
 func (f *taskFSM) publishOpenVerify() {
 	if f.openVerifyPublished || f.state != types.Assigned || !f.receiptOnChain {
 		return
+	}
+	if f.anchorOnlyWindowLocked() {
+		return // no Verifier is drawn for this task: nobody to invite
 	}
 	payload := f.openVerifyPayload()
 	if payload == nil {
@@ -692,7 +699,7 @@ func (f *taskFSM) stopVerifierProposalTimerLocked() {
 // Each proposal carries only new hand-raises: resubmitting ones already on-chain makes the
 // Keeper reject the whole proposal as "no new members".
 func (f *taskFSM) submitVerifierProposalLocked() {
-	if f.state != types.Assigned || !f.receiptOnChain {
+	if f.state != types.Assigned || !f.receiptOnChain || f.anchorOnlyWindowLocked() {
 		return
 	}
 	// An accepted proposal declares this Builder data-ready for the selected Verifiers.
@@ -808,6 +815,20 @@ func (f *taskFSM) setVerifierWindow(window chaincli.VerifierWindow) {
 	defer f.mu.Unlock()
 	f.verifierWindow = window
 	f.verifierWindowKnown = true
+	if window.AnchorOnly && !f.verifierProposalClosed {
+		// The chain draws no Verifier for this task and refuses every hand-raise proposal, so
+		// there is no OPEN_VERIFY to send and nothing to propose.
+		f.verifierProposalClosed = true
+		f.stopVerifierProposalTimerLocked()
+		f.log.Info("task is verified by the anchor audit alone; no Verifier proposal will be submitted",
+			"task_id", f.taskID)
+	}
+}
+
+// anchorOnlyWindowLocked reports whether the chain froze an anchor-only window for the task
+// (chaincli.VerifierWindow.AnchorOnly). Caller must hold the lock.
+func (f *taskFSM) anchorOnlyWindowLocked() bool {
+	return f.verifierWindowKnown && f.verifierWindow.AnchorOnly
 }
 
 // onHeightVerifierProposalLocked acts on two points in the Builder proposal window that a new
@@ -1542,6 +1563,11 @@ func (f *taskFSM) sweepDueDeadlines(policy DeadlineSweepPolicy, height uint64) {
 // current_height >= deadline_height is executable. Caller must hold the lock.
 func (f *taskFSM) dueDeadlineKind(height, grace uint64) (taskv1.DeadlineKindV1, uint64, bool) {
 	if f.terminal || f.self == "" || f.submit == nil || f.state != types.Verifying {
+		return taskv1.DeadlineKindV1_DEADLINE_KIND_V1_UNSPECIFIED, 0, false
+	}
+	if f.anchorOnlyRound {
+		// Round 1 has no Verifier and the chain files no commit, reveal or final deadline for
+		// it, so there is nothing to sweep.
 		return taskv1.DeadlineKindV1_DEADLINE_KIND_V1_UNSPECIFIED, 0, false
 	}
 	for _, candidate := range []struct {
