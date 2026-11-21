@@ -934,6 +934,7 @@ func TestQueryVerifierCandidateWindowMapsHeader(t *testing.T) {
 		return &taskv1.QueryVerifierCandidateWindowResponse{Window: &taskv1.VerifierCandidateWindowState{
 			TaskId: taskID, VerifyRound: round, Status: status,
 			WindowRandomnessHeight: 105, BuilderProposalCloseHeight: 200, HandraiseCloseHeight: 230, GeneratedHeight: 106,
+			EligibleCount: 3, WindowSize: 3,
 		}}
 	}
 	q := &recordTaskQuery{window: window(testTaskIDBytes, 1, taskv1.VerifierCandidateWindowStatusV1_VERIFIER_CANDIDATE_WINDOW_STATUS_V1_READY)}
@@ -969,6 +970,33 @@ func TestQueryVerifierCandidateWindowMapsHeader(t *testing.T) {
 	}
 	if _, err := c.QueryVerifierCandidateWindow(context.Background(), testTaskIDHex, 0); err == nil {
 		t.Fatal("round 0 accepted")
+	}
+}
+
+// A READY window with no members is the window of a task the chain verifies by the anchor audit
+// alone; a window that is not READY yet is never read as one, whatever its size.
+func TestQueryVerifierCandidateWindowMarksAnAnchorOnlyWindow(t *testing.T) {
+	window := func(status taskv1.VerifierCandidateWindowStatusV1, size uint32) *taskv1.QueryVerifierCandidateWindowResponse {
+		return &taskv1.QueryVerifierCandidateWindowResponse{Window: &taskv1.VerifierCandidateWindowState{
+			TaskId: testTaskIDBytes, VerifyRound: 1, Status: status, WindowSize: size,
+			WindowRandomnessHeight: 105, BuilderProposalCloseHeight: 200, HandraiseCloseHeight: 230, GeneratedHeight: 100,
+		}}
+	}
+	for _, tc := range []struct {
+		name   string
+		status taskv1.VerifierCandidateWindowStatusV1
+		size   uint32
+		want   bool
+	}{
+		{"READY without members", taskv1.VerifierCandidateWindowStatusV1_VERIFIER_CANDIDATE_WINDOW_STATUS_V1_READY, 0, true},
+		{"READY with members", taskv1.VerifierCandidateWindowStatusV1_VERIFIER_CANDIDATE_WINDOW_STATUS_V1_READY, 3, false},
+		{"not materialized yet", taskv1.VerifierCandidateWindowStatusV1_VERIFIER_CANDIDATE_WINDOW_STATUS_V1_SOURCE_FROZEN, 0, false},
+	} {
+		c := &client{taskQuery: &recordTaskQuery{window: window(tc.status, tc.size)}}
+		got, err := c.QueryVerifierCandidateWindow(context.Background(), testTaskIDHex, 1)
+		if err != nil || got.AnchorOnly != tc.want {
+			t.Fatalf("%s: AnchorOnly = %v (err %v), want %v", tc.name, got.AnchorOnly, err, tc.want)
+		}
 	}
 }
 
