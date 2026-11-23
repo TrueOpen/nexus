@@ -195,6 +195,10 @@ type taskFSM struct {
 	timer     *time.Timer
 	onClose   func() // used by the coordinator to remove this instance from the task table
 	onAbandon func() // pre-chain failure/expiry: remove without a terminal marker
+	// removed (guarded by mu) is set once the coordinator takes this instance out of its task
+	// table, before its snapshot is deleted. Every legitimate save happens before that, so a later
+	// save (a reconciliation whose chain query was in flight, say) must not write the snapshot back.
+	removed bool
 
 	handlerMu sync.Mutex
 	stopped   bool

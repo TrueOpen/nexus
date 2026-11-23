@@ -118,7 +118,7 @@ func (f *taskFSM) saveDeferred() error {
 }
 
 func (f *taskFSM) saveWith(persist func(taskSnapshot) error) error {
-	if persist == nil {
+	if persist == nil || f.removed {
 		return nil
 	}
 	sn := taskSnapshot{
@@ -534,7 +534,7 @@ func (c *Coordinator) recoverTasks(ctx context.Context) error {
 		if terminalMarked || !fsm.resume() {
 			// Keep the terminal snapshot until outputdelivery has durably
 			// reconciled a possible PREPARED plaintext record.
-			recipient := c.removeTask(key)
+			recipient := c.removeTaskInstance(key, fsm)
 			c.deletePayload(snapshotInput(sn))
 			c.relay.Release(sn.SessionID, sn.TaskID)
 			if c.outputs != nil {
