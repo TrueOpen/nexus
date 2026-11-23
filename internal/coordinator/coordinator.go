@@ -660,22 +660,6 @@ func (c *Coordinator) newFSM(o types.Order) *taskFSM {
 		confirm:               c.newTxConfirm(),
 		beginExternalHandler:  c.beginCallback,
 		endExternalHandler:    c.callbackWG.Done,
-		onClose: func() {
-			c.deletePayload(orderInput(o))
-			c.retireVerifierMessages(o.TaskID)
-			// The terminal marker goes first, as in recovery: Terminate may report the output
-			// finalized synchronously, and that deletes the snapshot only once the marker is durable.
-			recipient := c.removeTask(key)
-			if c.outputs != nil {
-				if err := c.outputs.Terminate(o.SessionID, o.TaskID, recipient); err != nil {
-					c.log.Error("output delivery terminate failed",
-						"session_id", o.SessionID,
-						"task_id", o.TaskID,
-						"err", err,
-					)
-				}
-			}
-		},
 		persist: func(sn taskSnapshot) error {
 			return c.persistTaskSnapshot(key, sn, c.kv.WriteBatch)
 		},
@@ -688,6 +672,22 @@ func (c *Coordinator) newFSM(o types.Order) *taskFSM {
 	}
 	// The new task supersedes an abandoned record of its key; the journal above continued it.
 	c.clearAbandonedRecord(key)
+	fsm.onClose = func() {
+		c.deletePayload(orderInput(o))
+		c.retireVerifierMessages(o.TaskID)
+		// The terminal marker goes first, as in recovery: Terminate may report the output
+		// finalized synchronously, and that deletes the snapshot only once the marker is durable.
+		recipient := c.removeTaskInstance(key, fsm)
+		if c.outputs != nil {
+			if err := c.outputs.Terminate(o.SessionID, o.TaskID, recipient); err != nil {
+				c.log.Error("output delivery terminate failed",
+					"session_id", o.SessionID,
+					"task_id", o.TaskID,
+					"err", err,
+				)
+			}
+		}
+	}
 	fsm.onAbandon = func() {
 		c.deletePayload(orderInput(o))
 		c.abandonFailedTask(key, fsm)
@@ -1389,6 +1389,12 @@ func (c *Coordinator) removeTask(key string) string {
 	c.mu.RLock()
 	fsm := c.tasks[key]
 	c.mu.RUnlock()
+	return c.removeTaskInstance(key, fsm)
+}
+
+// removeTaskInstance ends the task of key, fsm being the instance that is closing (nil when the
+// task has none), and marks fsm removed before the caller deletes its snapshot.
+func (c *Coordinator) removeTaskInstance(key string, fsm *taskFSM) string {
 	existingRecipient, alreadyTerminal, err := c.terminalMarker(key)
 	if err != nil {
 		c.log.Warn("terminal task marker unreadable; rewriting it", "key", key, "err", err)
@@ -1398,6 +1404,8 @@ func (c *Coordinator) removeTask(key string) string {
 	taskHash := c.terminalTaskHash(key)
 	if fsm != nil {
 		fsm.mu.Lock()
+		// This instance leaves the task table below and its snapshot is deleted after that.
+		fsm.removed = true
 		accepted = append([]byte(nil), fsm.outputHash...)
 		if !alreadyTerminal {
 			recipient = fsm.user
@@ -1467,6 +1475,11 @@ func (c *Coordinator) dropTask(key string, expected *taskFSM, keepRecord bool) {
 	if !removed {
 		return
 	}
+	// Mark it before the snapshot goes: a save still in flight either finishes first and is
+	// deleted below, or sees the mark and writes nothing.
+	expected.mu.Lock()
+	expected.removed = true
+	expected.mu.Unlock()
 	c.markOrderAbandoned(expected.order)
 	if keepRecord {
 		if op, at, ok := c.abandonedRecordOp(key, expected); ok {
