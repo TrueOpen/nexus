@@ -123,6 +123,9 @@ dispatch:
   # both values, an RTT above the last tier takes the last tier. The wait covers the Worker's
   # evaluation of the offer, not only the round trip; a Worker that answers after it counts as a
   # skip. Every Builder of a network should run the same tiers.
+  # If builder_rtt_admit_ms is raised above the last tier's max_rtt_ms, a Worker admitted above
+  # that tier waits the last tier's timeout plus its RTT in excess of the tier (at most up to the
+  # threshold), so the evaluation time the tier allows is kept. Add a tier to set it explicitly.
   accept_timeout_ms_by_rtt_tier:
     - max_rtt_ms: 50
       accept_timeout_ms: 1500
@@ -131,7 +134,8 @@ dispatch:
     - max_rtt_ms: 300
       accept_timeout_ms: 2500
   # Public RTT admission threshold: a handraise measured above it is not admitted and its root leaf
-  # records the RTT. 0 admits every RTT.
+  # records the RTT. 0 admits every RTT (the last accept timeout tier then applies unchanged to
+  # every RTT above it).
   builder_rtt_admit_ms: 300
   # A Worker whose signed rejects exceed this share of the tickets it received is not admitted for
   # gpu_reject_rate_suspension_blocks blocks (also the measuring window). 0 disables the rule.
