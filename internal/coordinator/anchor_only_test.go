@@ -1,6 +1,7 @@
 package coordinator
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/TrueOpen/nexus/internal/chaincli"
@@ -125,4 +126,101 @@ func (fx *verifierProposalFixture) settles() []chaincli.SettleTx {
 	fx.fake.mu.Lock()
 	defer fx.fake.mu.Unlock()
 	return append([]chaincli.SettleTx(nil), fx.fake.settle...)
+}
+
+// holdAnchorReceipt puts the fixture back to "receipt accepted locally, not yet relayed" with a
+// receipt that carries the anchor commitment and a data plane that is not ready for it.
+func holdAnchorReceipt(t *testing.T, fx *verifierProposalFixture, anchor bool) *fakeResultReadiness {
+	t.Helper()
+	readiness := &fakeResultReadiness{}
+	fx.c.SetResultReadiness(readiness)
+	fx.fake.mu.Lock()
+	fx.fake.openVerify = nil
+	fx.fake.mu.Unlock()
+	fx.fsm.mu.Lock()
+	defer fx.fsm.mu.Unlock()
+	fx.fsm.resultReadiness = readiness
+	fx.fsm.dataReady = false
+	fx.fsm.openVerifySubmitted = false
+	fx.fsm.receiptTx = submittedTx{}
+	if anchor {
+		fx.fsm.inferReceipt.EvidenceCommitments = append(fx.fsm.inferReceipt.EvidenceCommitments,
+			types.EvidenceCommitment{Kind: anchorEvidenceKind, HashOrRoot: make([]byte, 32), EncodedSizeBytes: 64})
+	}
+	fx.fsm.submitOpenVerifyLocked()
+	return readiness
+}
+
+func (fx *verifierProposalFixture) receiptsRelayed() int {
+	fx.fake.mu.Lock()
+	defer fx.fake.mu.Unlock()
+	return len(fx.fake.openVerify)
+}
+
+// A receipt that carries the anchor commitment is not relayed to the chain until the Worker's
+// result is finalized on this Builder: the chain draws no Verifier for it, so nothing later would
+// state that a Builder holds the output, and the round would close and pay without it.
+func TestAnchorReceiptIsRelayedOnlyOnceTheResultIsFinalized(t *testing.T) {
+	fx := newVerifierProposalFixture(t, "anchor-receipt-hold")
+	readiness := holdAnchorReceipt(t, fx, true)
+	waitDataReadyIdle(t, fx.fsm)
+	if n := fx.receiptsRelayed(); n != 0 {
+		t.Fatalf("anchor receipt relayed before the result was finalized: %d", n)
+	}
+	fx.fsm.onHeight(151) // a new height alone does not release it
+	waitDataReadyIdle(t, fx.fsm)
+	if n := fx.receiptsRelayed(); n != 0 {
+		t.Fatalf("anchor receipt relayed on a new height without the result: %d", n)
+	}
+	readiness.set(true)
+	fx.resultFinalized(t)
+	if n := fx.receiptsRelayed(); n != 1 {
+		t.Fatalf("anchor receipt relays after Finalize = %d, want 1", n)
+	}
+	fx.fsm.onHeight(152)
+	waitDataReadyIdle(t, fx.fsm)
+	if n := fx.receiptsRelayed(); n != 1 {
+		t.Fatalf("anchor receipt relayed again: %d", n)
+	}
+}
+
+// A data-ready check that failed when the result was finalized is asked again on the next height,
+// so an honest Worker's receipt is not left unrelayed by one failed read.
+func TestHeldAnchorReceiptIsRetriedOnTheNextHeight(t *testing.T) {
+	fx := newVerifierProposalFixture(t, "anchor-receipt-retry")
+	readiness := holdAnchorReceipt(t, fx, true)
+	readiness.mu.Lock()
+	readiness.ready, readiness.err = true, errors.New("storage unavailable")
+	readiness.mu.Unlock()
+	fx.resultFinalized(t)
+	if n := fx.receiptsRelayed(); n != 0 {
+		t.Fatalf("relayed although the data-ready check failed: %d", n)
+	}
+	readiness.mu.Lock()
+	readiness.err = nil
+	readiness.mu.Unlock()
+	fx.fsm.onHeight(151)
+	waitDataReadyIdle(t, fx.fsm)
+	if n := fx.receiptsRelayed(); n != 1 {
+		t.Fatalf("relays after the retry = %d, want 1", n)
+	}
+}
+
+// A receipt without the anchor commitment is relayed at once, as before; so is an anchor receipt on
+// a Builder that holds another input version and can never be data-ready.
+func TestOnlyAnchorReceiptsWaitForTheResult(t *testing.T) {
+	fx := newVerifierProposalFixture(t, "legacy-receipt-no-hold")
+	holdAnchorReceipt(t, fx, false)
+	if n := fx.receiptsRelayed(); n != 1 {
+		t.Fatalf("legacy receipt relays = %d, want 1", n)
+	}
+
+	fx = newVerifierProposalFixture(t, "anchor-receipt-mismatch")
+	fx.fsm.mu.Lock()
+	fx.fsm.versionMismatch = true
+	fx.fsm.mu.Unlock()
+	holdAnchorReceipt(t, fx, true)
+	if n := fx.receiptsRelayed(); n != 1 {
+		t.Fatalf("anchor receipt relays on an input-version mismatch = %d, want 1", n)
+	}
 }

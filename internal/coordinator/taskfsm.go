@@ -511,6 +511,8 @@ func (f *taskFSM) checkDataReady() {
 			f.log.Warn("data-ready check failed; will retry on the next trigger", "task_id", f.taskID, "err", err)
 		} else if ready && query.InferReceiptHash == hex.EncodeToString(f.inferReceipt.InferReceiptHash) {
 			f.dataReady = true
+			// A receipt held back for data-ready (receiptWaitsForDataReadyLocked) goes out now.
+			f.submitOpenVerifyLocked()
 			f.publishOpenVerify()
 			f.scheduleVerifierProposalLocked()
 		}
@@ -966,6 +968,11 @@ func (f *taskFSM) submitOpenVerifyLocked() {
 			"task_id", f.taskID, "handraises", len(f.verifierHR))
 		return
 	}
+	if f.receiptWaitsForDataReadyLocked() {
+		f.log.Debug("waiting for the finalized result before submitting an anchor-commitment receipt",
+			"task_id", f.taskID)
+		return
+	}
 	// OpenVerifyTx carries no sample_seed -- the chain derives the seed after OpenVerify
 	// from the aggregated future proposer-VRF beacon (SampleReady event).
 	//
@@ -1004,6 +1011,50 @@ func (f *taskFSM) submitOpenVerifyLocked() {
 	f.save()
 	f.log.Info("OpenVerifyTx submitted", "task_id", f.taskID, "verifier_handraise", len(f.verifierHR),
 		"tx_hash", hex.EncodeToString(res.TxHash))
+}
+
+// anchorEvidenceKind is shared.v1 EVIDENCE_KIND_WORKER_ANCHOR_OPENING, the commitment whose
+// presence in a receipt makes the chain verify the task by the anchor audit alone.
+const anchorEvidenceKind = 5
+
+// receiptWaitsForDataReadyLocked holds back a receipt that carries the anchor commitment until
+// this Builder is data-ready for it, i.e. the Worker's FinalizeTaskResult succeeded here with this
+// receipt. For such a task the chain draws no Verifier, so no Verifier proposal ever states that a
+// Builder holds the result: relaying the receipt at once would let the round close and pay a
+// Worker that never delivered the output. The check is retried on every new height until it
+// passes. It does not hold a receipt back when this Builder has no task data plane to ask, or
+// holds another input version than the accepted one (it can never be data-ready then, and the
+// input is not what the user is waiting for). Caller must hold the lock.
+func (f *taskFSM) receiptWaitsForDataReadyLocked() bool {
+	if f.resultReadiness == nil || f.versionMismatch {
+		return false
+	}
+	return f.anchorReceiptLocked() && !f.dataReadyLocked()
+}
+
+// anchorReceiptLocked reports whether the held receipt carries the anchor commitment. Caller must
+// hold the lock.
+func (f *taskFSM) anchorReceiptLocked() bool {
+	for _, c := range f.inferReceipt.EvidenceCommitments {
+		if c.Kind == anchorEvidenceKind {
+			return true
+		}
+	}
+	return false
+}
+
+// anchorReceiptUnsentLocked reports an anchor-commitment receipt this Builder holds, is in the
+// group to submit, and has neither submitted nor seen on chain. Caller must hold the lock.
+func (f *taskFSM) anchorReceiptUnsentLocked() bool {
+	if len(f.outputHash) == 0 || f.openVerifySubmitted || f.receiptOnChain || f.terminal || f.state != types.Assigned ||
+		!f.anchorReceiptLocked() {
+		return false
+	}
+	set := f.assignedSet
+	if len(set) == 0 {
+		set = f.builderSet
+	}
+	return f.inProposalGroup(set) && !f.resubmitHeldLocked(&f.receiptTx)
 }
 
 // onOpenVerifyAccepted: on-chain open-verify included: record the selected Verifiers and
@@ -1850,6 +1901,11 @@ func (f *taskFSM) onHeight(height uint64) {
 		return
 	}
 	f.observedHeight = height
+	if f.anchorReceiptUnsentLocked() {
+		// The receipt waits for data-ready (receiptWaitsForDataReadyLocked): a check that failed,
+		// or one a restart interrupted, is asked again on every new height.
+		f.submitOpenVerifyLocked()
+	}
 	f.onHeightVerifierProposalLocked()
 	f.trySettle()
 	check := f.followSubmittedTxsLocked()
