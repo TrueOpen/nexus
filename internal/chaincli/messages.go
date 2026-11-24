@@ -616,6 +616,10 @@ type VerifierWindow struct {
 	HandraiseCloseHeight       uint64 // last height at which the winner Worker may still submit one
 	GeneratedHeight            uint64 // 0 until Ready
 	Ready                      bool
+	// AnchorOnly is set for a READY window with no members: the chain verifies the task by the
+	// anchor audit alone (its Profile version requires the Worker anchor commitment), draws no
+	// Verifier and accepts no hand-raise for it.
+	AnchorOnly bool
 }
 
 // ChallengeCloseHeight returns challenge_close_height while the challenge window is the task's

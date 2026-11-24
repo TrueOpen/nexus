@@ -572,12 +572,14 @@ func (c *client) QueryVerifierCandidateWindow(ctx context.Context, taskID string
 	if !bytes.Equal(window.GetTaskId(), id) || window.GetVerifyRound() != verifyRound {
 		return VerifierWindow{}, fmt.Errorf("query verifier window: response key does not match request")
 	}
+	ready := window.GetStatus() == taskv1.VerifierCandidateWindowStatusV1_VERIFIER_CANDIDATE_WINDOW_STATUS_V1_READY
 	return VerifierWindow{
 		WindowRandomnessHeight:     window.GetWindowRandomnessHeight(),
 		BuilderProposalCloseHeight: window.GetBuilderProposalCloseHeight(),
 		HandraiseCloseHeight:       window.GetHandraiseCloseHeight(),
 		GeneratedHeight:            window.GetGeneratedHeight(),
-		Ready:                      window.GetStatus() == taskv1.VerifierCandidateWindowStatusV1_VERIFIER_CANDIDATE_WINDOW_STATUS_V1_READY,
+		Ready:                      ready,
+		AnchorOnly:                 ready && window.GetWindowSize() == 0,
 	}, nil
 }
 

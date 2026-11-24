@@ -328,9 +328,19 @@ func (f *taskFSM) reconcile(t chaincli.OnChainTask) {
 	// On-chain RECEIPT_COMMITTED also maps to Verifying, but that only means the verify window is open, verifiers undecided.
 	// Local Verifying means "verifiers decided": hand-raises are only accepted in Assigned, so fast-forwarding here
 	// would drop every verifier hand-raise that arrives afterwards. Stay in Assigned while the set is undecided.
+	//
+	// The exception is a task the chain verifies by the anchor audit alone: its round 1 assignment
+	// exists and selected nobody (open_verify_height is set, the Verifier list is empty). No
+	// hand-raise will ever be accepted for it, and the chain has already closed round 1, so it is
+	// Verifying with an empty Verifier set: only settlement is left, on the chain's own schedule
+	// (the assignment's commit deadline anchors it, see settleScheduleAnchorLocked).
 	chainState := t.State
-	if chainState == types.Verifying && len(t.Verifiers) == 0 {
+	anchorOnly := chainState == types.Verifying && len(t.Verifiers) == 0 && t.VerifierAssignment.OpenVerifyHeight != 0
+	if chainState == types.Verifying && len(t.Verifiers) == 0 && !anchorOnly {
 		chainState = types.Assigned
+	}
+	if anchorOnly {
+		f.anchorOnlyRound = true
 	}
 	if chainState < f.state {
 		return // chain behind / no info: keep local state and fields untouched (guards against stub/empty overwrite)
