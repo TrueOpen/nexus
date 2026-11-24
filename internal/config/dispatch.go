@@ -45,6 +45,16 @@ type DispatchConfig struct {
 	// GPURejectRateMinSamples is the fewest tickets inside the measuring window before a reject
 	// rate can suspend a Worker, so one early reject is not a 100% rate.
 	GPURejectRateMinSamples uint64 `yaml:"gpu_reject_rate_min_samples"`
+	// RejectRateExemptOutputTokens and RejectRateExemptInputBytes bound what every Worker of the
+	// network is expected to serve. A signed reject of an order whose max_output_tokens or
+	// input_size_bytes is above the bound is left out of the Worker's reject rate (numerator and
+	// denominator) and counted on its own in the public statistics: a Worker whose model service
+	// runs with a shorter context than the registered model allows must refuse such an order, and
+	// whoever sends them must not be able to get the Worker suspended. A Worker gains only the
+	// freedom to pick among orders above the bound; below it every reject counts as before. 0
+	// leaves the corresponding rule off. Every Builder of a network should run the same values.
+	RejectRateExemptOutputTokens uint64 `yaml:"reject_rate_exempt_output_tokens"`
+	RejectRateExemptInputBytes   uint64 `yaml:"reject_rate_exempt_input_bytes"`
 	// HandraiseIssuedHeightToleranceBlocks is how far above this Builder's chain height a standing
 	// handraise's issued_height may be: a Cortex that follows the chain more closely is not
 	// refused for this Builder's lag.
@@ -237,6 +247,8 @@ func applyDispatchEnv(c *DispatchConfig) {
 	c.GPURejectRateThreshold = envFloat64("NEXUS_DISPATCH_GPU_REJECT_RATE_THRESHOLD", c.GPURejectRateThreshold)
 	c.GPURejectRateSuspensionBlocks = envUint64("NEXUS_DISPATCH_GPU_REJECT_RATE_SUSPENSION_BLOCKS", c.GPURejectRateSuspensionBlocks)
 	c.GPURejectRateMinSamples = envUint64("NEXUS_DISPATCH_GPU_REJECT_RATE_MIN_SAMPLES", c.GPURejectRateMinSamples)
+	c.RejectRateExemptOutputTokens = envUint64("NEXUS_DISPATCH_REJECT_RATE_EXEMPT_OUTPUT_TOKENS", c.RejectRateExemptOutputTokens)
+	c.RejectRateExemptInputBytes = envUint64("NEXUS_DISPATCH_REJECT_RATE_EXEMPT_INPUT_BYTES", c.RejectRateExemptInputBytes)
 	c.BuilderTimeoutRateThreshold = envFloat64("NEXUS_DISPATCH_BUILDER_TIMEOUT_RATE_THRESHOLD", c.BuilderTimeoutRateThreshold)
 	c.HandraiseIssuedHeightToleranceBlocks = envUint64("NEXUS_DISPATCH_HANDRAISE_ISSUED_HEIGHT_TOLERANCE_BLOCKS", c.HandraiseIssuedHeightToleranceBlocks)
 }

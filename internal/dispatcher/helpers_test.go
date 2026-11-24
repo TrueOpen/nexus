@@ -532,6 +532,8 @@ func (r *fakeRecorder) recorded() []*Bundle {
 // ---- environment ----
 
 type env struct {
+	// orderTerms, when set, edits each order before it is signed and marshalled.
+	orderTerms func(*taskv1.TaskOrderV3)
 	t          *testing.T
 	store      kv.Store
 	ledger     *inflight.Ledger
@@ -696,6 +698,9 @@ func (e *env) orderAt(sessionID string, seq uint64, version byte, esh uint64) ty
 			OrderExpireHeight: esh + dispatch.MaxOrderLifetimeBlocksV1,
 		},
 		UserSignature: bytes.Repeat([]byte{version}, 65),
+	}
+	if e.orderTerms != nil {
+		e.orderTerms(signed.Order)
 	}
 	raw, err := proto.Marshal(signed)
 	if err != nil {

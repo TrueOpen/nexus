@@ -290,6 +290,47 @@ func TestRejectWithoutFreeSlotIsNotCounted(t *testing.T) {
 	}
 }
 
+// A signed reject of an order above the Builder's exemption bounds feeds neither the reject rate nor
+// its denominator, whatever the Worker's free slots; the walk goes on as for any reject. An order
+// at the bound, and any order while the rule is off, counts as before.
+func TestRejectOfAnOrderOverTheExemptBudgetIsNotCounted(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		exemptOut     uint64
+		exemptIn      uint64
+		maxOut, input uint64
+		counted       bool
+	}{
+		{"output budget above the bound", 4096, 0, 30744, 10, false},
+		{"output budget at the bound", 4096, 0, 4096, 10, true},
+		{"input above the bound", 0, 1 << 16, 24, 1<<16 + 1, false},
+		{"rule off", 0, 0, 30744, 1 << 20, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newEnv(t)
+			e.d.cfg.Dispatch.RejectRateExemptOutputTokens = tc.exemptOut
+			e.d.cfg.Dispatch.RejectRateExemptInputBytes = tc.exemptIn
+			e.orderTerms = func(o *taskv1.TaskOrderV3) {
+				o.GenerationParams = &taskv1.GenerationParamsV1{MaxOutputTokens: tc.maxOut}
+				o.InputSizeBytes = tc.input
+			}
+			s := e.session(0xaa, 0)
+			e.dispatch(e.order(s, 0, 1))
+			e.reject() // op7, rank 0
+			if got := operatorsOf(e.streams.offers()); !reflect.DeepEqual(got, []string{op7, op1}) {
+				t.Fatalf("the walk did not go on after the reject: offers = %v", got)
+			}
+			var want []outcomeCall
+			if tc.counted {
+				want = []outcomeCall{{op7, true}}
+			}
+			if got := e.handraises.outcomeCalls(); !reflect.DeepEqual(got, want) {
+				t.Fatalf("reject-rate outcomes = %v, want %v", got, want)
+			}
+		})
+	}
+}
+
 // More rejects and timeouts than max_skips end the order as NO_CAPACITY: its ledger entry fails and
 // its sequence stays unused.
 func TestSkipLimitIsNoCapacity(t *testing.T) {

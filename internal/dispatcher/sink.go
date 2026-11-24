@@ -211,11 +211,28 @@ func (d *Dispatcher) HandleDispatchReject(ctx context.Context, from dispatchstre
 		outcome = opsmetrics.OutcomeRejected
 	}
 	d.cfg.Metrics.Inc(opsmetrics.CounterSkips, opsmetrics.SkipRejected)
-	d.recordOutcome(a, outcome)
+	if d.overExemptBudget(o.signed.GetOrder()) {
+		// Not a ticket the reject rate is measured on: the order asks for more than every Worker
+		// is expected to serve, so refusing it says nothing about the Worker.
+		d.cfg.Metrics.WorkerOutcome(a.Operator, a.Tier, opsmetrics.OutcomeRejectedOverExemptBudget)
+	} else {
+		d.recordOutcome(a, outcome)
+	}
 	out := d.step(ctx, o)
 	o.mu.Unlock()
 	d.finish(ctx, out)
 	return nil
+}
+
+// overExemptBudget reports an order above this Builder's reject-rate exemption bounds: its output
+// budget or its input size is more than every Worker of the network is expected to serve. Both are
+// fields of the user-signed order, so the Worker cannot claim the exemption for another order.
+func (d *Dispatcher) overExemptBudget(o *taskv1.TaskOrderV3) bool {
+	c := d.cfg.Dispatch
+	if c.RejectRateExemptOutputTokens != 0 && uint64(o.GetGenerationParams().GetMaxOutputTokens()) > c.RejectRateExemptOutputTokens {
+		return true
+	}
+	return c.RejectRateExemptInputBytes != 0 && o.GetInputSizeBytes() > c.RejectRateExemptInputBytes
 }
 
 // HandleDispatchInputRequest serves the order's input to the Worker that won it: the request must
