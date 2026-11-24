@@ -73,6 +73,32 @@ func TestDispatchValidateRejectsInvalidCombinations(t *testing.T) {
 	}
 }
 
+// builder_rtt_admit_ms above the last tier's max_rtt_ms admits Workers the tiers were not written
+// for. Their accept timeout keeps the last tier's evaluation budget: it grows by the round trip
+// above the tier, and no further than the admission threshold allows.
+func TestDispatchAcceptTimeoutFollowsTheRTTAdmissionThreshold(t *testing.T) {
+	tiers := []RTTTierConfig{{MaxRTTMs: 150, AcceptTimeoutMs: 2000}, {MaxRTTMs: 300, AcceptTimeoutMs: 2500}}
+	for _, c := range []struct {
+		admit, rtt, want uint64
+	}{
+		{300, 350, 2500},         // threshold at the last tier: nothing above it is admitted
+		{1500, 300, 2500},        // inside the last tier
+		{1500, 350, 2550},        // 50 ms of round trip the tier did not count
+		{1500, 1500, 3700},       // the slowest admitted Worker
+		{1500, 9000, 3700},       // never more than the threshold admits
+		{1500, ^uint64(0), 3700}, // unmeasured: the slowest admitted
+		{0, 9000, 2500},          // admission off: the last tier as configured
+		{200, 9000, 2500},        // threshold below the last tier
+		{60_000, 60_000, 60_000}, // capped at the largest timeout a tier may have
+		{60_000, ^uint64(0), 60_000},
+	} {
+		cfg := DispatchConfig{AcceptTimeoutMsByRTTTier: tiers, BuilderRTTAdmitMs: c.admit}
+		if tier, got := cfg.AcceptTimeoutTier(c.rtt); got != c.want || tier != 2 {
+			t.Fatalf("admit %d rtt %d: tier %d timeout %d, want tier 2 timeout %d", c.admit, c.rtt, tier, got, c.want)
+		}
+	}
+}
+
 func TestDispatchAcceptTimeoutByTier(t *testing.T) {
 	cfg := DispatchConfig{AcceptTimeoutMsByRTTTier: []RTTTierConfig{
 		{MaxRTTMs: 50, AcceptTimeoutMs: 300}, {MaxRTTMs: 150, AcceptTimeoutMs: 500},

@@ -27,7 +27,8 @@ type DispatchConfig struct {
 	HandraiseRootIntervalMs uint64 `yaml:"handraise_root_interval_ms"`
 	// AcceptTimeoutMsByRTTTier is how long a dispatched ticket waits for an accept or reject, by
 	// the candidate's measured RTT. Tiers are ordered by MaxRTTMs; an RTT above the last tier
-	// takes the last tier. The wait covers the Worker's evaluation of the offer, not only the
+	// takes the last tier, extended by the excess round trip up to BuilderRTTAdmitMs when that
+	// threshold admits RTTs above it. The wait covers the Worker's evaluation of the offer, not only the
 	// round trip: the defaults leave it well over a second, since a Worker that answers after
 	// the deadline counts as a skip and an order whose every member timed out cannot be
 	// dispatched again before the next epoch.
@@ -200,16 +201,29 @@ func (c DispatchConfig) AcceptTimeoutMs(rttMs uint64) uint64 {
 // AcceptTimeoutTier returns the tier AcceptTimeoutMs takes for rttMs, numbered from 1 in
 // configuration order (a dispatch record's timeout_tier_or_zero), and its accept timeout. Both are
 // 0 when no tier is configured.
+//
+// An RTT above the last tier takes the last tier. When builder_rtt_admit_ms admits RTTs above that
+// tier's max_rtt_ms, its timeout grows by the round trip the tier did not count, up to the
+// admission threshold: the tiers budget the Worker's evaluation of the offer on top of the round
+// trip, and an operator who raises the threshold alone would otherwise admit Workers whose longer
+// round trip is taken out of that budget, so they time out on offers they would have accepted.
+// With admission off (0) the last tier applies unchanged; add a tier for the RTTs to be served.
 func (c DispatchConfig) AcceptTimeoutTier(rttMs uint64) (uint32, uint64) {
 	for i, tier := range c.AcceptTimeoutMsByRTTTier {
 		if rttMs <= tier.MaxRTTMs {
 			return uint32(i + 1), tier.AcceptTimeoutMs
 		}
 	}
-	if n := len(c.AcceptTimeoutMsByRTTTier); n > 0 {
-		return uint32(n), c.AcceptTimeoutMsByRTTTier[n-1].AcceptTimeoutMs
+	n := len(c.AcceptTimeoutMsByRTTTier)
+	if n == 0 {
+		return 0, 0
 	}
-	return 0, 0
+	last := c.AcceptTimeoutMsByRTTTier[n-1]
+	timeout := last.AcceptTimeoutMs
+	if c.BuilderRTTAdmitMs > last.MaxRTTMs {
+		timeout += min(rttMs, c.BuilderRTTAdmitMs) - last.MaxRTTMs
+	}
+	return uint32(n), min(timeout, maxAcceptTimeoutMsByRTTTier)
 }
 
 func isShare(v float64) bool { return !math.IsNaN(v) && v >= 0 && v <= 1 }
