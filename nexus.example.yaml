@@ -151,6 +151,14 @@ dispatch:
   # limits should not be below them.
   # reject_rate_exempt_output_tokens: 4096
   # reject_rate_exempt_input_bytes: 65536
+  # The same two bounds for one Profile version, keyed "<model_id hex>@<profile_version>"; a
+  # version listed here does not use the two values above. Prefer this form: one pair for every
+  # model is too high for a version its Workers serve with a short context, or too low for the
+  # rest. The bounds in effect are published under gpu_reject_rate.exempt in /v1/dispatch/stats.
+  # reject_rate_exempt_by_profile:
+  #   "f5977e825943568850ccc6ae6ef62ae52da04531eb05b7ba86feea4977cc99e1@2":
+  #     output_tokens: 2048
+  #     input_bytes: 8192
   # Share of TIMEOUT skips flagged by the public statistics; statistics only.
   builder_timeout_rate_threshold: 0.2
   # Gas limit of a dispatch record transaction: record_gas_base plus record_gas_per_entry per entry

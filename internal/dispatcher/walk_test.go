@@ -19,6 +19,7 @@ import (
 	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
 	"github.com/TrueOpen/nexus/internal/attempt"
 	"github.com/TrueOpen/nexus/internal/chaincli"
+	"github.com/TrueOpen/nexus/internal/config"
 	"github.com/TrueOpen/nexus/internal/dispatchdraw"
 	"github.com/TrueOpen/nexus/internal/inflight"
 	"github.com/TrueOpen/nexus/internal/kv"
@@ -320,6 +321,43 @@ func TestRejectOfAnOrderOverTheExemptBudgetIsNotCounted(t *testing.T) {
 			if got := operatorsOf(e.streams.offers()); !reflect.DeepEqual(got, []string{op7, op1}) {
 				t.Fatalf("the walk did not go on after the reject: offers = %v", got)
 			}
+			var want []outcomeCall
+			if tc.counted {
+				want = []outcomeCall{{op7, true}}
+			}
+			if got := e.handraises.outcomeCalls(); !reflect.DeepEqual(got, want) {
+				t.Fatalf("reject-rate outcomes = %v, want %v", got, want)
+			}
+		})
+	}
+}
+
+// The bounds of a Profile version listed in reject_rate_exempt_by_profile replace the two values for
+// every version: an order of that version above its own bound is exempt although it is below the
+// general one, and an order of it below its own bound counts although the general bound is lower.
+func TestRejectExemptionUsesTheBoundsOfTheProfileVersion(t *testing.T) {
+	key := config.RejectRateExemptKey(testModel[:], 1)
+	for _, tc := range []struct {
+		name    string
+		general uint64
+		own     uint64
+		maxOut  uint64
+		counted bool
+	}{
+		{"above the version's bound, below the general one", 8192, 4096, 5000, false},
+		{"below the version's bound, above the general one", 2048, 8192, 5000, true},
+		{"the version's entry switches the exemption off", 2048, 0, 5000, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newEnv(t)
+			e.d.cfg.Dispatch.RejectRateExemptOutputTokens = tc.general
+			e.d.cfg.Dispatch.RejectRateExemptByProfile = map[string]config.RejectRateExemptBounds{key: {OutputTokens: tc.own}}
+			e.orderTerms = func(o *taskv1.TaskOrderV3) {
+				o.GenerationParams = &taskv1.GenerationParamsV1{MaxOutputTokens: tc.maxOut}
+			}
+			s := e.session(0xaa, 0)
+			e.dispatch(e.order(s, 0, 1))
+			e.reject()
 			var want []outcomeCall
 			if tc.counted {
 				want = []outcomeCall{{op7, true}}

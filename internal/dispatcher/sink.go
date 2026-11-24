@@ -228,11 +228,11 @@ func (d *Dispatcher) HandleDispatchReject(ctx context.Context, from dispatchstre
 // budget or its input size is more than every Worker of the network is expected to serve. Both are
 // fields of the user-signed order, so the Worker cannot claim the exemption for another order.
 func (d *Dispatcher) overExemptBudget(o *taskv1.TaskOrderV3) bool {
-	c := d.cfg.Dispatch
-	if c.RejectRateExemptOutputTokens != 0 && uint64(o.GetGenerationParams().GetMaxOutputTokens()) > c.RejectRateExemptOutputTokens {
+	b := d.cfg.Dispatch.RejectRateExempt(o.GetModelId(), o.GetProfileVersion())
+	if b.OutputTokens != 0 && uint64(o.GetGenerationParams().GetMaxOutputTokens()) > b.OutputTokens {
 		return true
 	}
-	return c.RejectRateExemptInputBytes != 0 && o.GetInputSizeBytes() > c.RejectRateExemptInputBytes
+	return b.InputBytes != 0 && o.GetInputSizeBytes() > b.InputBytes
 }
 
 // HandleDispatchInputRequest serves the order's input to the Worker that won it: the request must

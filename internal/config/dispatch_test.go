@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/hex"
 	"os"
 	"path/filepath"
 	"strings"
@@ -193,5 +194,30 @@ func TestExampleDispatchSettings(t *testing.T) {
 	}
 	if err := got.Validate(); err != nil {
 		t.Fatalf("example dispatch invalid: %v", err)
+	}
+}
+
+// reject_rate_exempt_by_profile keys name one Profile version; anything else is refused at start.
+func TestRejectRateExemptByProfileKeys(t *testing.T) {
+	model := strings.Repeat("ab", 32)
+	for key, ok := range map[string]bool{
+		model + "@2": true, model + "@0": false, model + "@02": false, strings.ToUpper(model) + "@2": false,
+		model: false, "abcd@1": false, model + "@x": false,
+	} {
+		c := defaultDispatch()
+		c.RejectRateExemptByProfile = map[string]RejectRateExemptBounds{key: {OutputTokens: 2048}}
+		if err := c.Validate(); (err == nil) != ok {
+			t.Fatalf("key %q: err = %v, want accepted = %v", key, err, ok)
+		}
+	}
+	c := defaultDispatch()
+	c.RejectRateExemptOutputTokens = 8192
+	raw, _ := hex.DecodeString(model)
+	c.RejectRateExemptByProfile = map[string]RejectRateExemptBounds{model + "@2": {OutputTokens: 2048, InputBytes: 100}}
+	if got := c.RejectRateExempt(raw, 2); got.OutputTokens != 2048 || got.InputBytes != 100 {
+		t.Fatalf("version with an entry: %+v", got)
+	}
+	if got := c.RejectRateExempt(raw, 1); got.OutputTokens != 8192 || got.InputBytes != 0 {
+		t.Fatalf("version without an entry: %+v", got)
 	}
 }

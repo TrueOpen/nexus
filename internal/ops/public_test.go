@@ -123,3 +123,31 @@ func TestPublicStatsHandler(t *testing.T) {
 		t.Fatalf("stats = %d %s", rr.Code, rr.Body.String())
 	}
 }
+
+// The reject-rate exemption bounds in effect are public: what a Worker may refuse at no cost is
+// stated by the Builder, next to each Worker's count of such refusals.
+func TestPublicStatsStateTheRejectRateExemption(t *testing.T) {
+	key := config.RejectRateExemptKey(make([]byte, 32), 2)
+	s := BuildPublicStats(PublicSources{Builder: "trueopen1builder", Metrics: opsmetrics.New(), Dispatch: config.DispatchConfig{
+		RejectRateExemptOutputTokens: 8192,
+		RejectRateExemptByProfile:    map[string]config.RejectRateExemptBounds{key: {OutputTokens: 2048, InputBytes: 8192}},
+	}}, time.Unix(1_700_000_000, 0))
+	raw, err := json.Marshal(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc struct {
+		Rule struct {
+			Exempt struct {
+				Default   config.RejectRateExemptBounds            `json:"default"`
+				ByProfile map[string]config.RejectRateExemptBounds `json:"by_profile"`
+			} `json:"exempt"`
+		} `json:"gpu_reject_rate"`
+	}
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatal(err)
+	}
+	if doc.Rule.Exempt.Default.OutputTokens != 8192 || doc.Rule.Exempt.ByProfile[key] != (config.RejectRateExemptBounds{OutputTokens: 2048, InputBytes: 8192}) {
+		t.Fatalf("published exemption = %s", raw)
+	}
+}
