@@ -224,3 +224,111 @@ func TestOnlyAnchorReceiptsWaitForTheResult(t *testing.T) {
 		t.Fatalf("anchor receipt relays on an input-version mismatch = %d, want 1", n)
 	}
 }
+
+// The hold is bounded. A result that never finalizes on this Builder (a storage fault here, a
+// restart during the upload) while the Worker has stopped retrying must not cost an honest
+// Worker its receipt: after the hold the receipt is relayed without data-ready, once.
+func TestAnchorReceiptHoldEndsAfterItsBlocks(t *testing.T) {
+	fx := newVerifierProposalFixture(t, "anchor-receipt-hold-bound")
+	fx.fsm.mu.Lock()
+	fx.fsm.observedHeight = 150
+	fx.fsm.receiptHoldBlocks = 40
+	fx.fsm.mu.Unlock()
+	holdAnchorReceipt(t, fx, true)
+	for h := uint64(151); h < 190; h++ {
+		fx.fsm.onHeight(h)
+	}
+	waitDataReadyIdle(t, fx.fsm)
+	if n := fx.receiptsRelayed(); n != 0 {
+		t.Fatalf("relayed inside the hold: %d", n)
+	}
+	fx.fsm.onHeight(190) // held since 150, 40 blocks
+	waitDataReadyIdle(t, fx.fsm)
+	if n := fx.receiptsRelayed(); n != 1 {
+		t.Fatalf("relays at the end of the hold = %d, want 1", n)
+	}
+	for h := uint64(191); h < 200; h++ {
+		fx.fsm.onHeight(h)
+	}
+	if n := fx.receiptsRelayed(); n != 1 {
+		t.Fatalf("relayed again after the hold: %d", n)
+	}
+}
+
+// Whatever its age, the hold ends a margin before the infer deadline (and before the receipt's
+// own expiry), well ahead of the few blocks at which a Worker submits its receipt itself.
+func TestAnchorReceiptHoldEndsBeforeTheInferDeadline(t *testing.T) {
+	fx := newVerifierProposalFixture(t, "anchor-receipt-hold-deadline")
+	fx.fsm.mu.Lock()
+	fx.fsm.observedHeight = 150
+	fx.fsm.receiptHoldBlocks = 100_000
+	fx.fsm.receiptHoldDeadlineMargin = 50
+	fx.fsm.inferDeadlineHeight = 400
+	fx.fsm.inferReceipt.ExpiryHeight = 1_000_000
+	fx.fsm.mu.Unlock()
+	holdAnchorReceipt(t, fx, true)
+	fx.fsm.onHeight(349)
+	waitDataReadyIdle(t, fx.fsm)
+	if n := fx.receiptsRelayed(); n != 0 {
+		t.Fatalf("relayed %d blocks before the infer deadline: %d", 400-349, n)
+	}
+	fx.fsm.onHeight(350)
+	waitDataReadyIdle(t, fx.fsm)
+	if n := fx.receiptsRelayed(); n != 1 {
+		t.Fatalf("relays at the deadline margin = %d, want 1", n)
+	}
+}
+
+// The start of the hold is persisted and restored, so a restart does not start the bound again.
+func TestAnchorReceiptHoldStartSurvivesARestart(t *testing.T) {
+	fx := newVerifierProposalFixture(t, "anchor-receipt-hold-restart")
+	var last taskSnapshot
+	fx.fsm.mu.Lock()
+	fx.fsm.observedHeight = 150
+	fx.fsm.persist = func(sn taskSnapshot) error { last = sn; return nil }
+	fx.fsm.mu.Unlock()
+	holdAnchorReceipt(t, fx, true)
+	if last.ReceiptHeldSince != 150 {
+		t.Fatalf("persisted hold start = %d, want 150", last.ReceiptHeldSince)
+	}
+	restored := &taskFSM{}
+	restored.restoreFrom(last)
+	if restored.receiptHeldSince != 150 || restored.receiptRelayCleared {
+		t.Fatalf("restored hold start = %d, relay cleared = %v; want 150 and not cleared before a reconcile",
+			restored.receiptHeldSince, restored.receiptRelayCleared)
+	}
+}
+
+// After a restart this process does not know whether the chain already holds the receipt. The
+// per-height retry and the data-ready release wait for the first reconcile: a receipt the chain
+// holds is not sent again (one wasted fee per task), one it does not hold is relayed then.
+func TestRestoredAnchorReceiptIsNotRelayedBeforeTheChainIsRead(t *testing.T) {
+	for _, onChain := range []bool{true, false} {
+		fx := newVerifierProposalFixture(t, "anchor-receipt-restored")
+		readiness := holdAnchorReceipt(t, fx, true)
+		fx.fsm.mu.Lock()
+		fx.fsm.receiptRelayCleared = false // as restored from the store
+		fx.fsm.mu.Unlock()
+		readiness.set(true)
+		fx.resultFinalized(t)
+		fx.fsm.onHeight(151)
+		waitDataReadyIdle(t, fx.fsm)
+		if n := fx.receiptsRelayed(); n != 0 {
+			t.Fatalf("on chain %v: a restored receipt was relayed before any reconcile: %d", onChain, n)
+		}
+		if onChain {
+			fx.chainAcceptsReceipt(t, 152)
+		} else {
+			fx.fsm.receiptReconciled(0)
+		}
+		fx.fsm.onHeight(153)
+		waitDataReadyIdle(t, fx.fsm)
+		want := 1
+		if onChain {
+			want = 0
+		}
+		if n := fx.receiptsRelayed(); n != want {
+			t.Fatalf("on chain %v: relays after the reconcile = %d, want %d", onChain, n, want)
+		}
+	}
+}
