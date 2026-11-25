@@ -7,6 +7,7 @@ import (
 	"github.com/TrueOpen/nexus/internal/config"
 	"github.com/TrueOpen/nexus/internal/handraise"
 	"github.com/TrueOpen/nexus/internal/opsmetrics"
+	"github.com/TrueOpen/nexus/internal/workerquota"
 )
 
 // PublicStatsPath is the public statistics route on the ingress port.
@@ -31,6 +32,9 @@ type PublicSources struct {
 	Handraises Handraises
 	// Height is the local chain height the reject-rate suspensions are judged at.
 	Height func() uint64
+	// WorkerQuota lists the Worker quota and pause states this Builder holds; nil when the check
+	// is off.
+	WorkerQuota func() []workerquota.View
 }
 
 // PublicStats are this Builder's public dispatch statistics: the RTT admission threshold it
@@ -55,6 +59,11 @@ type PublicStats struct {
 	// last SuspensionBlocks blocks, a Worker's handraise is not admitted (REJECT_RATE) for
 	// SuspensionBlocks blocks.
 	RejectRate RejectRateRule `json:"gpu_reject_rate"`
+	// WorkerQuota is, per Worker this Builder considered since the last refresh, the chain's order
+	// quota of the settlement period, what the chain and this Builder hold reserved, and the
+	// chain's pause flag (pause_reasons: 1 late submission pending, 2 unbonding, 4 jailed). The
+	// chain's own figures are authoritative; these are the copies this Builder decides on.
+	WorkerQuota []workerquota.View `json:"worker_quota,omitempty"`
 	// Skips counts skipped roster members by reason.
 	Skips   map[string]uint64       `json:"skips"`
 	Workers map[string]PublicWorker `json:"workers"`
@@ -138,6 +147,9 @@ func BuildPublicStats(src PublicSources, now time.Time) PublicStats {
 	}
 	if s.Skips == nil {
 		s.Skips = map[string]uint64{}
+	}
+	if src.WorkerQuota != nil {
+		s.WorkerQuota = src.WorkerQuota()
 	}
 	var received, timeouts uint64
 	for operator, w := range snap.Workers {

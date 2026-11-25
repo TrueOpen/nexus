@@ -66,6 +66,15 @@ type DispatchConfig struct {
 	// what the Workers of that version are required to serve, and have them configure limits
 	// that are not below it. The bounds in effect are published in the public statistics.
 	RejectRateExemptByProfile map[string]RejectRateExemptBounds `yaml:"reject_rate_exempt_by_profile"`
+	// WorkerQuotaRefreshMs is how long this Builder uses a Worker's order quota and pause state
+	// read from the chain (hub.v1.Query/WorkerQuota) before reading it again. Before a ticket goes
+	// out the Worker must not be paused for dispatch and its remaining quota of the settlement
+	// period, less the value of this Builder's own orders still on the way to the chain, must
+	// cover the order; otherwise the member's ticket times out unsent. The chain enforces the same
+	// at record time, so the check only keeps orders from being accepted that could not be
+	// recorded. 0 turns the check off. A chain that does not serve the query, or that has the
+	// quota switched off, changes nothing either way.
+	WorkerQuotaRefreshMs uint64 `yaml:"worker_quota_refresh_ms"`
 	// HandraiseIssuedHeightToleranceBlocks is how far above this Builder's chain height a standing
 	// handraise's issued_height may be: a Cortex that follows the chain more closely is not
 	// refused for this Builder's lag.
@@ -119,6 +128,7 @@ func defaultDispatch() DispatchConfig {
 		GPURejectRateSuspensionBlocks: 720,
 		GPURejectRateMinSamples:       10,
 		BuilderTimeoutRateThreshold:   0.2,
+		WorkerQuotaRefreshMs:          2000,
 
 		HandraiseIssuedHeightToleranceBlocks: 3,
 		RecordGasBase:                        200_000,
@@ -328,6 +338,7 @@ func applyDispatchEnv(c *DispatchConfig) {
 	c.RejectRateExemptOutputTokens = envUint64("NEXUS_DISPATCH_REJECT_RATE_EXEMPT_OUTPUT_TOKENS", c.RejectRateExemptOutputTokens)
 	c.RejectRateExemptInputBytes = envUint64("NEXUS_DISPATCH_REJECT_RATE_EXEMPT_INPUT_BYTES", c.RejectRateExemptInputBytes)
 	c.BuilderTimeoutRateThreshold = envFloat64("NEXUS_DISPATCH_BUILDER_TIMEOUT_RATE_THRESHOLD", c.BuilderTimeoutRateThreshold)
+	c.WorkerQuotaRefreshMs = envUint64("NEXUS_DISPATCH_WORKER_QUOTA_REFRESH_MS", c.WorkerQuotaRefreshMs)
 	c.HandraiseIssuedHeightToleranceBlocks = envUint64("NEXUS_DISPATCH_HANDRAISE_ISSUED_HEIGHT_TOLERANCE_BLOCKS", c.HandraiseIssuedHeightToleranceBlocks)
 }
 

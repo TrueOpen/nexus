@@ -34,6 +34,7 @@ import (
 	"github.com/TrueOpen/nexus/internal/takeover"
 	"github.com/TrueOpen/nexus/internal/taskdata"
 	"github.com/TrueOpen/nexus/internal/taskgroup"
+	"github.com/TrueOpen/nexus/internal/workerquota"
 )
 
 // paramsRefreshInterval is how often the dispatch params are read again; a params change on chain
@@ -57,6 +58,9 @@ type orderDispatch struct {
 	// account, and OpenTask refuses new orders while it shows a pending rotation.
 	Keys handraise.ChainServiceKeys
 	Gate *recorder.Gate
+	// Quota is the Worker quota ledger the dispatcher asks before a ticket goes out; nil when the
+	// check is off or the chain client cannot read the quota.
+	Quota *workerquota.Ledger
 	// Takeovers takes over the sessions bound to other Builders that orders arrive for.
 	Takeovers *takeover.Manager
 	Attempts  *attempt.Book
@@ -267,12 +271,14 @@ func newOrderDispatch(ctx context.Context, deps orderDispatchDeps) (*orderDispat
 	if err != nil {
 		return nil, err
 	}
+	dispatcherQuota, pricing := workerQuota(deps, od)
 	od.Dispatcher, err = dispatcher.New(dispatcher.Config{
 		ChainID: deps.ChainID, Builder: deps.BuilderAddress, Dispatch: deps.Config, InputChunkBytes: deps.InputChunkBytes,
 		Signer: deps.Signer, Store: deps.Store, Ledger: od.Ledger, Sessions: od.Sessions,
 		Streams: deps.Direct.Streams, Handraises: deps.Direct.Registry, Drawer: deps.Direct.Drawer, Keys: od.Gate,
 		Inputs: storedInputs{deps.Inputs}, Recorder: od.Recorder, Observer: deps.Observer, Attempts: deps.Attempts, Evidence: od.Evidence,
 		Sync: od.Sync, Metrics: deps.Metrics, Draining: od.draining, Log: deps.Log,
+		Quota: dispatcherQuota, Pricing: pricing,
 	}, params.walk)
 	if err != nil {
 		return nil, err

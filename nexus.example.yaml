@@ -143,6 +143,12 @@ dispatch:
   gpu_reject_rate_suspension_blocks: 720
   # Fewest tickets inside the window before a reject rate can suspend a Worker.
   gpu_reject_rate_min_samples: 10
+  # How long a Worker's order quota and pause state read from the chain are used before they are
+  # read again. A Worker the chain paused for dispatch (late audit submission pending, unbonding,
+  # jailed), or whose remaining quota of the settlement period does not cover the order, gets a
+  # ticket that times out unsent. 0 turns the check off; a chain without Worker quotas changes
+  # nothing. The figures in use are published under worker_quota in /v1/dispatch/stats.
+  worker_quota_refresh_ms: 2000
   # What every Worker of the network is expected to serve. A signed reject of an order whose
   # max_output_tokens or input_size_bytes is above the bound is left out of the Worker's reject
   # rate and counted on its own (rejected_over_exempt_budget): a Worker whose model service has a

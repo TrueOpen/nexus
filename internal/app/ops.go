@@ -61,7 +61,7 @@ func newOpsMonitor(deps opsDeps) *ops.Monitor {
 		cfg.Public = func(now time.Time) ops.PublicStats {
 			return ops.BuildPublicStats(ops.PublicSources{
 				Builder: deps.BuilderAddress, Dispatch: deps.Dispatch, Metrics: deps.Metrics, Handraises: deps.Direct.Registry,
-				Height: deps.Orders.Sessions.Head,
+				Height: deps.Orders.Sessions.Head, WorkerQuota: deps.Orders.workerQuotaViews(),
 			}, now)
 		}
 	}
