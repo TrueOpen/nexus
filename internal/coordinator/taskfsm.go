@@ -165,7 +165,12 @@ type taskFSM struct {
 	// anchorOnlyRound is set by reconcile when the chain's round 1 assignment selected no
 	// Verifier: the task is verified by the anchor audit alone. It is a chain fact re-read on
 	// every reconciliation, so it is not persisted.
-	anchorOnlyRound        bool
+	anchorOnlyRound bool
+	// panel is the open Verifier panel round of the task's anchor audit this Builder collects
+	// hand-raises for (panel.go); nil when there is none. panelRetired is the highest round that
+	// left the hand-raise stage here, so an older read of the chain cannot reopen it.
+	panel                  *panelRoundState
+	panelRetired           uint32
 	verifierProposalClosed bool
 	// verifierRandomnessTried records that the attempt due once the window randomness height has
 	// passed was made, so each new block does not repeat it.
@@ -658,6 +663,9 @@ func (f *taskFSM) onWinnerRecorded(winner string, assignedSet []types.BuilderRef
 func (f *taskFSM) onVerifierHandraise(hr *taskv1.VerifierHandraiseV1) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.panelHandraiseLocked(hr) {
+		return // a hand-raise for the open Verifier panel round of an anchor audit (panel.go)
+	}
 	if f.state != types.Assigned || !bytes.Equal(hr.GetTaskId(), f.taskIDBytes()) {
 		return
 	}
@@ -1453,6 +1461,12 @@ func (f *taskFSM) validVerifyCommit(commit *taskv1.VerifyCommitV1) bool {
 }
 
 func (f *taskFSM) validVerifierHandraise(hr *taskv1.VerifierHandraiseV1) bool {
+	return f.validVerifierHandraiseRound(hr, nodecontract.SupportedVerifyRoundV1)
+}
+
+// validVerifierHandraiseRound checks a hand-raise for the given verify round: round 1 of an
+// ordinary task, or the open panel round of an anchor audit.
+func (f *taskFSM) validVerifierHandraiseRound(hr *taskv1.VerifierHandraiseV1, round uint64) bool {
 	candidate := hr.GetMember().GetOperatorAddress()
 	outputHash, receiptHash := f.acceptedReceiptHashesLocked()
 	switch {
@@ -1467,7 +1481,7 @@ func (f *taskFSM) validVerifierHandraise(hr *taskv1.VerifierHandraiseV1) bool {
 	case hr.GetDuty() != sharedv1.Duty_DUTY_VERIFIER:
 		f.log.Warn("drop verifier handraise whose duty is not DUTY_VERIFIER", "task_id", f.taskID,
 			"candidate", candidate, "duty", hr.GetDuty())
-	case uint64(hr.GetVerifyRound()) != nodecontract.SupportedVerifyRoundV1:
+	case uint64(hr.GetVerifyRound()) != round:
 		f.log.Warn("drop verifier handraise for an unsupported verify round", "task_id", f.taskID,
 			"candidate", candidate, "verify_round", hr.GetVerifyRound())
 	// The Verifier handraise binds infer_receipt_hash / output_hash; there is
