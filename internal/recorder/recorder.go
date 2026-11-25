@@ -284,6 +284,7 @@ func (r *Recorder) Record(_ context.Context, b *dispatcher.Bundle) error {
 		BoundChange:    b.Entry.GetWinnerTicket().GetBoundChangeHeight(),
 		DeadlineBlocks: b.DeadlineBlocks,
 		OrderExpire:    b.Entry.GetSignedOrder().GetOrder().GetOrderExpireHeight(),
+		InputTokens:    append([]byte(nil), b.InputTokens...),
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()

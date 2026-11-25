@@ -204,6 +204,9 @@ type Bundle struct {
 	Deadline       uint64
 	DeadlineBlocks uint64
 	Entry          *taskv1.DispatchEntryV1
+	// InputTokens is the user's signed input token count for the order (wire bytes), sent with the
+	// record when the user supplied one.
+	InputTokens []byte
 }
 
 // Recorder records accepted orders on chain.
@@ -527,6 +530,7 @@ func (d *Dispatcher) Dispatch(ctx context.Context, o types.Order) error {
 		prev := cloneState(existing.st)
 		st := existing.st
 		st.TaskID, st.TaskHash, st.SignedOrder = o.TaskID, o.TaskHash, o.SignedOrder
+		st.InputTokens = o.InputTokensAttestation
 		st.Phase, st.FailReason, st.NewRound = phaseDispatching, "", true
 		st.Accept, st.AcceptDigest, st.Record = nil, nil, nil
 		st.Windows = windows
@@ -544,7 +548,7 @@ func (d *Dispatcher) Dispatch(ctx context.Context, o types.Order) error {
 	} else {
 		st := &orderState{
 			SessionID: o.SessionID, Sequence: o.OrderSequence, TaskID: o.TaskID, TaskHash: o.TaskHash,
-			SignedOrder: o.SignedOrder, Phase: phaseDispatching, Windows: windows,
+			SignedOrder: o.SignedOrder, InputTokens: o.InputTokensAttestation, Phase: phaseDispatching, Windows: windows,
 		}
 		if err := saveStateDeferred(d.cfg.Store, st); err != nil {
 			return err

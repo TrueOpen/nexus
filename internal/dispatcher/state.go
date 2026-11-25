@@ -88,6 +88,9 @@ type orderState struct {
 	TaskHash  string `json:"task_hash"`
 	// SignedOrder is the SignedOrderV2 of the version being dispatched.
 	SignedOrder []byte `json:"signed_order"`
+	// InputTokens is the user's signed OrderInputTokensAttestationV1 received with the order, if
+	// any; it goes to the chain with the order's record.
+	InputTokens []byte `json:"input_tokens_attestation,omitempty"`
 	Phase       phase  `json:"phase"`
 	FailReason  string `json:"fail_reason,omitempty"`
 
