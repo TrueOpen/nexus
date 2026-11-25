@@ -24,7 +24,7 @@ var File_hub_v1_query_proto protoreflect.FileDescriptor
 
 const file_hub_v1_query_proto_rawDesc = "" +
 	"\n" +
-	"\x12hub/v1/query.proto\x12\x06hub.v1\x1a\x15hub/v1/dispatch.proto\x1a\x19hub/v1/query_bridge.proto\x1a\x1bhub/v1/query_registry.proto\x1a\x1ahub/v1/query_rewards.proto2\x98\x19\n" +
+	"\x12hub/v1/query.proto\x12\x06hub.v1\x1a\x15hub/v1/dispatch.proto\x1a\x19hub/v1/query_bridge.proto\x1a\x1bhub/v1/query_registry.proto\x1a\x1ahub/v1/query_rewards.proto2\xea\x19\n" +
 	"\x05Query\x12G\n" +
 	"\x06Params\x12\x1d.hub.v1.QueryHubParamsRequest\x1a\x1e.hub.v1.QueryHubParamsResponse\x12A\n" +
 	"\x06Beacon\x12\x1a.hub.v1.QueryBeaconRequest\x1a\x1b.hub.v1.QueryBeaconResponse\x12A\n" +
@@ -40,7 +40,8 @@ const file_hub_v1_query_proto_rawDesc = "" +
 	"\aProfile\x12\x1b.hub.v1.QueryProfileRequest\x1a\x1c.hub.v1.QueryProfileResponse\x12M\n" +
 	"\n" +
 	"CortexNode\x12\x1e.hub.v1.QueryCortexNodeRequest\x1a\x1f.hub.v1.QueryCortexNodeResponse\x12P\n" +
-	"\vServiceBond\x12\x1f.hub.v1.QueryServiceBondRequest\x1a .hub.v1.QueryServiceBondResponse\x12b\n" +
+	"\vServiceBond\x12\x1f.hub.v1.QueryServiceBondRequest\x1a .hub.v1.QueryServiceBondResponse\x12P\n" +
+	"\vWorkerQuota\x12\x1f.hub.v1.QueryWorkerQuotaRequest\x1a .hub.v1.QueryWorkerQuotaResponse\x12b\n" +
 	"\x11ServiceUnbondings\x12%.hub.v1.QueryServiceUnbondingsRequest\x1a&.hub.v1.QueryServiceUnbondingsResponse\x12b\n" +
 	"\x11CurrentServiceKey\x12%.hub.v1.QueryCurrentServiceKeyRequest\x1a&.hub.v1.QueryCurrentServiceKeyResponse\x12b\n" +
 	"\x11ServiceDescriptor\x12%.hub.v1.QueryServiceDescriptorRequest\x1a&.hub.v1.QueryServiceDescriptorResponse\x12_\n" +
@@ -79,65 +80,67 @@ var file_hub_v1_query_proto_goTypes = []any{
 	(*QueryProfileRequest)(nil),                      // 10: hub.v1.QueryProfileRequest
 	(*QueryCortexNodeRequest)(nil),                   // 11: hub.v1.QueryCortexNodeRequest
 	(*QueryServiceBondRequest)(nil),                  // 12: hub.v1.QueryServiceBondRequest
-	(*QueryServiceUnbondingsRequest)(nil),            // 13: hub.v1.QueryServiceUnbondingsRequest
-	(*QueryCurrentServiceKeyRequest)(nil),            // 14: hub.v1.QueryCurrentServiceKeyRequest
-	(*QueryServiceDescriptorRequest)(nil),            // 15: hub.v1.QueryServiceDescriptorRequest
-	(*QueryServiceLifecycleRequest)(nil),             // 16: hub.v1.QueryServiceLifecycleRequest
-	(*QueryModelCapabilityRequest)(nil),              // 17: hub.v1.QueryModelCapabilityRequest
-	(*QueryModelSupportRequest)(nil),                 // 18: hub.v1.QueryModelSupportRequest
-	(*QueryDailySupportRequest)(nil),                 // 19: hub.v1.QueryDailySupportRequest
-	(*QueryCurrentCandidatePoolRequest)(nil),         // 20: hub.v1.QueryCurrentCandidatePoolRequest
-	(*QueryCandidatePoolSnapshotRequest)(nil),        // 21: hub.v1.QueryCandidatePoolSnapshotRequest
-	(*QueryCandidatePoolMemberRequest)(nil),          // 22: hub.v1.QueryCandidatePoolMemberRequest
-	(*QueryCandidatePoolMembersRequest)(nil),         // 23: hub.v1.QueryCandidatePoolMembersRequest
-	(*QueryCompetitionEpochRequest)(nil),             // 24: hub.v1.QueryCompetitionEpochRequest
-	(*QueryRewardEpochCursorRequest)(nil),            // 25: hub.v1.QueryRewardEpochCursorRequest
-	(*QueryRewardEpochAuditRequest)(nil),             // 26: hub.v1.QueryRewardEpochAuditRequest
-	(*QueryTreasuryRequest)(nil),                     // 27: hub.v1.QueryTreasuryRequest
-	(*QueryBridgeStatusRequest)(nil),                 // 28: hub.v1.QueryBridgeStatusRequest
-	(*QueryValidatorBridgeSignerRequest)(nil),        // 29: hub.v1.QueryValidatorBridgeSignerRequest
-	(*QueryFreezeSignalRequest)(nil),                 // 30: hub.v1.QueryFreezeSignalRequest
-	(*QueryFreezeSignalsRequest)(nil),                // 31: hub.v1.QueryFreezeSignalsRequest
-	(*QueryEmergencyFreezeVotesRequest)(nil),         // 32: hub.v1.QueryEmergencyFreezeVotesRequest
-	(*QueryTimeoutBucketRequest)(nil),                // 33: hub.v1.QueryTimeoutBucketRequest
-	(*QueryCandidatePoolSnapshotMemberRequest)(nil),  // 34: hub.v1.QueryCandidatePoolSnapshotMemberRequest
-	(*QueryBuilderCompensationAccountRequest)(nil),   // 35: hub.v1.QueryBuilderCompensationAccountRequest
-	(*QueryHubParamsResponse)(nil),                   // 36: hub.v1.QueryHubParamsResponse
-	(*QueryBeaconResponse)(nil),                      // 37: hub.v1.QueryBeaconResponse
-	(*QueryVrfKeyResponse)(nil),                      // 38: hub.v1.QueryVrfKeyResponse
-	(*QueryBuilderSetResponse)(nil),                  // 39: hub.v1.QueryBuilderSetResponse
-	(*QueryBuilderResponse)(nil),                     // 40: hub.v1.QueryBuilderResponse
-	(*QueryBuildersResponse)(nil),                    // 41: hub.v1.QueryBuildersResponse
-	(*QueryFaultResponse)(nil),                       // 42: hub.v1.QueryFaultResponse
-	(*QueryEarningsResponse)(nil),                    // 43: hub.v1.QueryEarningsResponse
-	(*QueryModelResponse)(nil),                       // 44: hub.v1.QueryModelResponse
-	(*QueryModelsResponse)(nil),                      // 45: hub.v1.QueryModelsResponse
-	(*QueryProfileResponse)(nil),                     // 46: hub.v1.QueryProfileResponse
-	(*QueryCortexNodeResponse)(nil),                  // 47: hub.v1.QueryCortexNodeResponse
-	(*QueryServiceBondResponse)(nil),                 // 48: hub.v1.QueryServiceBondResponse
-	(*QueryServiceUnbondingsResponse)(nil),           // 49: hub.v1.QueryServiceUnbondingsResponse
-	(*QueryCurrentServiceKeyResponse)(nil),           // 50: hub.v1.QueryCurrentServiceKeyResponse
-	(*QueryServiceDescriptorResponse)(nil),           // 51: hub.v1.QueryServiceDescriptorResponse
-	(*QueryServiceLifecycleResponse)(nil),            // 52: hub.v1.QueryServiceLifecycleResponse
-	(*QueryModelCapabilityResponse)(nil),             // 53: hub.v1.QueryModelCapabilityResponse
-	(*QueryModelSupportResponse)(nil),                // 54: hub.v1.QueryModelSupportResponse
-	(*QueryDailySupportResponse)(nil),                // 55: hub.v1.QueryDailySupportResponse
-	(*QueryCurrentCandidatePoolResponse)(nil),        // 56: hub.v1.QueryCurrentCandidatePoolResponse
-	(*QueryCandidatePoolSnapshotResponse)(nil),       // 57: hub.v1.QueryCandidatePoolSnapshotResponse
-	(*QueryCandidatePoolMemberResponse)(nil),         // 58: hub.v1.QueryCandidatePoolMemberResponse
-	(*QueryCandidatePoolMembersResponse)(nil),        // 59: hub.v1.QueryCandidatePoolMembersResponse
-	(*QueryCompetitionEpochResponse)(nil),            // 60: hub.v1.QueryCompetitionEpochResponse
-	(*QueryRewardEpochCursorResponse)(nil),           // 61: hub.v1.QueryRewardEpochCursorResponse
-	(*QueryRewardEpochAuditResponse)(nil),            // 62: hub.v1.QueryRewardEpochAuditResponse
-	(*QueryTreasuryResponse)(nil),                    // 63: hub.v1.QueryTreasuryResponse
-	(*QueryBridgeStatusResponse)(nil),                // 64: hub.v1.QueryBridgeStatusResponse
-	(*QueryValidatorBridgeSignerResponse)(nil),       // 65: hub.v1.QueryValidatorBridgeSignerResponse
-	(*QueryFreezeSignalResponse)(nil),                // 66: hub.v1.QueryFreezeSignalResponse
-	(*QueryFreezeSignalsResponse)(nil),               // 67: hub.v1.QueryFreezeSignalsResponse
-	(*QueryEmergencyFreezeVotesResponse)(nil),        // 68: hub.v1.QueryEmergencyFreezeVotesResponse
-	(*QueryTimeoutBucketResponse)(nil),               // 69: hub.v1.QueryTimeoutBucketResponse
-	(*QueryCandidatePoolSnapshotMemberResponse)(nil), // 70: hub.v1.QueryCandidatePoolSnapshotMemberResponse
-	(*QueryBuilderCompensationAccountResponse)(nil),  // 71: hub.v1.QueryBuilderCompensationAccountResponse
+	(*QueryWorkerQuotaRequest)(nil),                  // 13: hub.v1.QueryWorkerQuotaRequest
+	(*QueryServiceUnbondingsRequest)(nil),            // 14: hub.v1.QueryServiceUnbondingsRequest
+	(*QueryCurrentServiceKeyRequest)(nil),            // 15: hub.v1.QueryCurrentServiceKeyRequest
+	(*QueryServiceDescriptorRequest)(nil),            // 16: hub.v1.QueryServiceDescriptorRequest
+	(*QueryServiceLifecycleRequest)(nil),             // 17: hub.v1.QueryServiceLifecycleRequest
+	(*QueryModelCapabilityRequest)(nil),              // 18: hub.v1.QueryModelCapabilityRequest
+	(*QueryModelSupportRequest)(nil),                 // 19: hub.v1.QueryModelSupportRequest
+	(*QueryDailySupportRequest)(nil),                 // 20: hub.v1.QueryDailySupportRequest
+	(*QueryCurrentCandidatePoolRequest)(nil),         // 21: hub.v1.QueryCurrentCandidatePoolRequest
+	(*QueryCandidatePoolSnapshotRequest)(nil),        // 22: hub.v1.QueryCandidatePoolSnapshotRequest
+	(*QueryCandidatePoolMemberRequest)(nil),          // 23: hub.v1.QueryCandidatePoolMemberRequest
+	(*QueryCandidatePoolMembersRequest)(nil),         // 24: hub.v1.QueryCandidatePoolMembersRequest
+	(*QueryCompetitionEpochRequest)(nil),             // 25: hub.v1.QueryCompetitionEpochRequest
+	(*QueryRewardEpochCursorRequest)(nil),            // 26: hub.v1.QueryRewardEpochCursorRequest
+	(*QueryRewardEpochAuditRequest)(nil),             // 27: hub.v1.QueryRewardEpochAuditRequest
+	(*QueryTreasuryRequest)(nil),                     // 28: hub.v1.QueryTreasuryRequest
+	(*QueryBridgeStatusRequest)(nil),                 // 29: hub.v1.QueryBridgeStatusRequest
+	(*QueryValidatorBridgeSignerRequest)(nil),        // 30: hub.v1.QueryValidatorBridgeSignerRequest
+	(*QueryFreezeSignalRequest)(nil),                 // 31: hub.v1.QueryFreezeSignalRequest
+	(*QueryFreezeSignalsRequest)(nil),                // 32: hub.v1.QueryFreezeSignalsRequest
+	(*QueryEmergencyFreezeVotesRequest)(nil),         // 33: hub.v1.QueryEmergencyFreezeVotesRequest
+	(*QueryTimeoutBucketRequest)(nil),                // 34: hub.v1.QueryTimeoutBucketRequest
+	(*QueryCandidatePoolSnapshotMemberRequest)(nil),  // 35: hub.v1.QueryCandidatePoolSnapshotMemberRequest
+	(*QueryBuilderCompensationAccountRequest)(nil),   // 36: hub.v1.QueryBuilderCompensationAccountRequest
+	(*QueryHubParamsResponse)(nil),                   // 37: hub.v1.QueryHubParamsResponse
+	(*QueryBeaconResponse)(nil),                      // 38: hub.v1.QueryBeaconResponse
+	(*QueryVrfKeyResponse)(nil),                      // 39: hub.v1.QueryVrfKeyResponse
+	(*QueryBuilderSetResponse)(nil),                  // 40: hub.v1.QueryBuilderSetResponse
+	(*QueryBuilderResponse)(nil),                     // 41: hub.v1.QueryBuilderResponse
+	(*QueryBuildersResponse)(nil),                    // 42: hub.v1.QueryBuildersResponse
+	(*QueryFaultResponse)(nil),                       // 43: hub.v1.QueryFaultResponse
+	(*QueryEarningsResponse)(nil),                    // 44: hub.v1.QueryEarningsResponse
+	(*QueryModelResponse)(nil),                       // 45: hub.v1.QueryModelResponse
+	(*QueryModelsResponse)(nil),                      // 46: hub.v1.QueryModelsResponse
+	(*QueryProfileResponse)(nil),                     // 47: hub.v1.QueryProfileResponse
+	(*QueryCortexNodeResponse)(nil),                  // 48: hub.v1.QueryCortexNodeResponse
+	(*QueryServiceBondResponse)(nil),                 // 49: hub.v1.QueryServiceBondResponse
+	(*QueryWorkerQuotaResponse)(nil),                 // 50: hub.v1.QueryWorkerQuotaResponse
+	(*QueryServiceUnbondingsResponse)(nil),           // 51: hub.v1.QueryServiceUnbondingsResponse
+	(*QueryCurrentServiceKeyResponse)(nil),           // 52: hub.v1.QueryCurrentServiceKeyResponse
+	(*QueryServiceDescriptorResponse)(nil),           // 53: hub.v1.QueryServiceDescriptorResponse
+	(*QueryServiceLifecycleResponse)(nil),            // 54: hub.v1.QueryServiceLifecycleResponse
+	(*QueryModelCapabilityResponse)(nil),             // 55: hub.v1.QueryModelCapabilityResponse
+	(*QueryModelSupportResponse)(nil),                // 56: hub.v1.QueryModelSupportResponse
+	(*QueryDailySupportResponse)(nil),                // 57: hub.v1.QueryDailySupportResponse
+	(*QueryCurrentCandidatePoolResponse)(nil),        // 58: hub.v1.QueryCurrentCandidatePoolResponse
+	(*QueryCandidatePoolSnapshotResponse)(nil),       // 59: hub.v1.QueryCandidatePoolSnapshotResponse
+	(*QueryCandidatePoolMemberResponse)(nil),         // 60: hub.v1.QueryCandidatePoolMemberResponse
+	(*QueryCandidatePoolMembersResponse)(nil),        // 61: hub.v1.QueryCandidatePoolMembersResponse
+	(*QueryCompetitionEpochResponse)(nil),            // 62: hub.v1.QueryCompetitionEpochResponse
+	(*QueryRewardEpochCursorResponse)(nil),           // 63: hub.v1.QueryRewardEpochCursorResponse
+	(*QueryRewardEpochAuditResponse)(nil),            // 64: hub.v1.QueryRewardEpochAuditResponse
+	(*QueryTreasuryResponse)(nil),                    // 65: hub.v1.QueryTreasuryResponse
+	(*QueryBridgeStatusResponse)(nil),                // 66: hub.v1.QueryBridgeStatusResponse
+	(*QueryValidatorBridgeSignerResponse)(nil),       // 67: hub.v1.QueryValidatorBridgeSignerResponse
+	(*QueryFreezeSignalResponse)(nil),                // 68: hub.v1.QueryFreezeSignalResponse
+	(*QueryFreezeSignalsResponse)(nil),               // 69: hub.v1.QueryFreezeSignalsResponse
+	(*QueryEmergencyFreezeVotesResponse)(nil),        // 70: hub.v1.QueryEmergencyFreezeVotesResponse
+	(*QueryTimeoutBucketResponse)(nil),               // 71: hub.v1.QueryTimeoutBucketResponse
+	(*QueryCandidatePoolSnapshotMemberResponse)(nil), // 72: hub.v1.QueryCandidatePoolSnapshotMemberResponse
+	(*QueryBuilderCompensationAccountResponse)(nil),  // 73: hub.v1.QueryBuilderCompensationAccountResponse
 }
 var file_hub_v1_query_proto_depIdxs = []int32{
 	0,  // 0: hub.v1.Query.Params:input_type -> hub.v1.QueryHubParamsRequest
@@ -153,67 +156,69 @@ var file_hub_v1_query_proto_depIdxs = []int32{
 	10, // 10: hub.v1.Query.Profile:input_type -> hub.v1.QueryProfileRequest
 	11, // 11: hub.v1.Query.CortexNode:input_type -> hub.v1.QueryCortexNodeRequest
 	12, // 12: hub.v1.Query.ServiceBond:input_type -> hub.v1.QueryServiceBondRequest
-	13, // 13: hub.v1.Query.ServiceUnbondings:input_type -> hub.v1.QueryServiceUnbondingsRequest
-	14, // 14: hub.v1.Query.CurrentServiceKey:input_type -> hub.v1.QueryCurrentServiceKeyRequest
-	15, // 15: hub.v1.Query.ServiceDescriptor:input_type -> hub.v1.QueryServiceDescriptorRequest
-	16, // 16: hub.v1.Query.ServiceLifecycle:input_type -> hub.v1.QueryServiceLifecycleRequest
-	17, // 17: hub.v1.Query.ModelCapability:input_type -> hub.v1.QueryModelCapabilityRequest
-	18, // 18: hub.v1.Query.ModelSupport:input_type -> hub.v1.QueryModelSupportRequest
-	19, // 19: hub.v1.Query.DailySupport:input_type -> hub.v1.QueryDailySupportRequest
-	20, // 20: hub.v1.Query.CurrentCandidatePool:input_type -> hub.v1.QueryCurrentCandidatePoolRequest
-	21, // 21: hub.v1.Query.CandidatePoolSnapshot:input_type -> hub.v1.QueryCandidatePoolSnapshotRequest
-	22, // 22: hub.v1.Query.CandidatePoolMember:input_type -> hub.v1.QueryCandidatePoolMemberRequest
-	23, // 23: hub.v1.Query.CandidatePoolMembers:input_type -> hub.v1.QueryCandidatePoolMembersRequest
-	24, // 24: hub.v1.Query.CompetitionEpoch:input_type -> hub.v1.QueryCompetitionEpochRequest
-	25, // 25: hub.v1.Query.RewardEpochCursor:input_type -> hub.v1.QueryRewardEpochCursorRequest
-	26, // 26: hub.v1.Query.RewardEpochAudit:input_type -> hub.v1.QueryRewardEpochAuditRequest
-	27, // 27: hub.v1.Query.Treasury:input_type -> hub.v1.QueryTreasuryRequest
-	28, // 28: hub.v1.Query.BridgeStatus:input_type -> hub.v1.QueryBridgeStatusRequest
-	29, // 29: hub.v1.Query.ValidatorBridgeSigner:input_type -> hub.v1.QueryValidatorBridgeSignerRequest
-	30, // 30: hub.v1.Query.FreezeSignal:input_type -> hub.v1.QueryFreezeSignalRequest
-	31, // 31: hub.v1.Query.FreezeSignals:input_type -> hub.v1.QueryFreezeSignalsRequest
-	32, // 32: hub.v1.Query.EmergencyFreezeVotes:input_type -> hub.v1.QueryEmergencyFreezeVotesRequest
-	33, // 33: hub.v1.Query.TimeoutBucket:input_type -> hub.v1.QueryTimeoutBucketRequest
-	34, // 34: hub.v1.Query.CandidatePoolSnapshotMember:input_type -> hub.v1.QueryCandidatePoolSnapshotMemberRequest
-	35, // 35: hub.v1.Query.BuilderCompensationAccount:input_type -> hub.v1.QueryBuilderCompensationAccountRequest
-	36, // 36: hub.v1.Query.Params:output_type -> hub.v1.QueryHubParamsResponse
-	37, // 37: hub.v1.Query.Beacon:output_type -> hub.v1.QueryBeaconResponse
-	38, // 38: hub.v1.Query.VrfKey:output_type -> hub.v1.QueryVrfKeyResponse
-	39, // 39: hub.v1.Query.BuilderSet:output_type -> hub.v1.QueryBuilderSetResponse
-	40, // 40: hub.v1.Query.Builder:output_type -> hub.v1.QueryBuilderResponse
-	41, // 41: hub.v1.Query.Builders:output_type -> hub.v1.QueryBuildersResponse
-	42, // 42: hub.v1.Query.Fault:output_type -> hub.v1.QueryFaultResponse
-	43, // 43: hub.v1.Query.Earnings:output_type -> hub.v1.QueryEarningsResponse
-	44, // 44: hub.v1.Query.Model:output_type -> hub.v1.QueryModelResponse
-	45, // 45: hub.v1.Query.Models:output_type -> hub.v1.QueryModelsResponse
-	46, // 46: hub.v1.Query.Profile:output_type -> hub.v1.QueryProfileResponse
-	47, // 47: hub.v1.Query.CortexNode:output_type -> hub.v1.QueryCortexNodeResponse
-	48, // 48: hub.v1.Query.ServiceBond:output_type -> hub.v1.QueryServiceBondResponse
-	49, // 49: hub.v1.Query.ServiceUnbondings:output_type -> hub.v1.QueryServiceUnbondingsResponse
-	50, // 50: hub.v1.Query.CurrentServiceKey:output_type -> hub.v1.QueryCurrentServiceKeyResponse
-	51, // 51: hub.v1.Query.ServiceDescriptor:output_type -> hub.v1.QueryServiceDescriptorResponse
-	52, // 52: hub.v1.Query.ServiceLifecycle:output_type -> hub.v1.QueryServiceLifecycleResponse
-	53, // 53: hub.v1.Query.ModelCapability:output_type -> hub.v1.QueryModelCapabilityResponse
-	54, // 54: hub.v1.Query.ModelSupport:output_type -> hub.v1.QueryModelSupportResponse
-	55, // 55: hub.v1.Query.DailySupport:output_type -> hub.v1.QueryDailySupportResponse
-	56, // 56: hub.v1.Query.CurrentCandidatePool:output_type -> hub.v1.QueryCurrentCandidatePoolResponse
-	57, // 57: hub.v1.Query.CandidatePoolSnapshot:output_type -> hub.v1.QueryCandidatePoolSnapshotResponse
-	58, // 58: hub.v1.Query.CandidatePoolMember:output_type -> hub.v1.QueryCandidatePoolMemberResponse
-	59, // 59: hub.v1.Query.CandidatePoolMembers:output_type -> hub.v1.QueryCandidatePoolMembersResponse
-	60, // 60: hub.v1.Query.CompetitionEpoch:output_type -> hub.v1.QueryCompetitionEpochResponse
-	61, // 61: hub.v1.Query.RewardEpochCursor:output_type -> hub.v1.QueryRewardEpochCursorResponse
-	62, // 62: hub.v1.Query.RewardEpochAudit:output_type -> hub.v1.QueryRewardEpochAuditResponse
-	63, // 63: hub.v1.Query.Treasury:output_type -> hub.v1.QueryTreasuryResponse
-	64, // 64: hub.v1.Query.BridgeStatus:output_type -> hub.v1.QueryBridgeStatusResponse
-	65, // 65: hub.v1.Query.ValidatorBridgeSigner:output_type -> hub.v1.QueryValidatorBridgeSignerResponse
-	66, // 66: hub.v1.Query.FreezeSignal:output_type -> hub.v1.QueryFreezeSignalResponse
-	67, // 67: hub.v1.Query.FreezeSignals:output_type -> hub.v1.QueryFreezeSignalsResponse
-	68, // 68: hub.v1.Query.EmergencyFreezeVotes:output_type -> hub.v1.QueryEmergencyFreezeVotesResponse
-	69, // 69: hub.v1.Query.TimeoutBucket:output_type -> hub.v1.QueryTimeoutBucketResponse
-	70, // 70: hub.v1.Query.CandidatePoolSnapshotMember:output_type -> hub.v1.QueryCandidatePoolSnapshotMemberResponse
-	71, // 71: hub.v1.Query.BuilderCompensationAccount:output_type -> hub.v1.QueryBuilderCompensationAccountResponse
-	36, // [36:72] is the sub-list for method output_type
-	0,  // [0:36] is the sub-list for method input_type
+	13, // 13: hub.v1.Query.WorkerQuota:input_type -> hub.v1.QueryWorkerQuotaRequest
+	14, // 14: hub.v1.Query.ServiceUnbondings:input_type -> hub.v1.QueryServiceUnbondingsRequest
+	15, // 15: hub.v1.Query.CurrentServiceKey:input_type -> hub.v1.QueryCurrentServiceKeyRequest
+	16, // 16: hub.v1.Query.ServiceDescriptor:input_type -> hub.v1.QueryServiceDescriptorRequest
+	17, // 17: hub.v1.Query.ServiceLifecycle:input_type -> hub.v1.QueryServiceLifecycleRequest
+	18, // 18: hub.v1.Query.ModelCapability:input_type -> hub.v1.QueryModelCapabilityRequest
+	19, // 19: hub.v1.Query.ModelSupport:input_type -> hub.v1.QueryModelSupportRequest
+	20, // 20: hub.v1.Query.DailySupport:input_type -> hub.v1.QueryDailySupportRequest
+	21, // 21: hub.v1.Query.CurrentCandidatePool:input_type -> hub.v1.QueryCurrentCandidatePoolRequest
+	22, // 22: hub.v1.Query.CandidatePoolSnapshot:input_type -> hub.v1.QueryCandidatePoolSnapshotRequest
+	23, // 23: hub.v1.Query.CandidatePoolMember:input_type -> hub.v1.QueryCandidatePoolMemberRequest
+	24, // 24: hub.v1.Query.CandidatePoolMembers:input_type -> hub.v1.QueryCandidatePoolMembersRequest
+	25, // 25: hub.v1.Query.CompetitionEpoch:input_type -> hub.v1.QueryCompetitionEpochRequest
+	26, // 26: hub.v1.Query.RewardEpochCursor:input_type -> hub.v1.QueryRewardEpochCursorRequest
+	27, // 27: hub.v1.Query.RewardEpochAudit:input_type -> hub.v1.QueryRewardEpochAuditRequest
+	28, // 28: hub.v1.Query.Treasury:input_type -> hub.v1.QueryTreasuryRequest
+	29, // 29: hub.v1.Query.BridgeStatus:input_type -> hub.v1.QueryBridgeStatusRequest
+	30, // 30: hub.v1.Query.ValidatorBridgeSigner:input_type -> hub.v1.QueryValidatorBridgeSignerRequest
+	31, // 31: hub.v1.Query.FreezeSignal:input_type -> hub.v1.QueryFreezeSignalRequest
+	32, // 32: hub.v1.Query.FreezeSignals:input_type -> hub.v1.QueryFreezeSignalsRequest
+	33, // 33: hub.v1.Query.EmergencyFreezeVotes:input_type -> hub.v1.QueryEmergencyFreezeVotesRequest
+	34, // 34: hub.v1.Query.TimeoutBucket:input_type -> hub.v1.QueryTimeoutBucketRequest
+	35, // 35: hub.v1.Query.CandidatePoolSnapshotMember:input_type -> hub.v1.QueryCandidatePoolSnapshotMemberRequest
+	36, // 36: hub.v1.Query.BuilderCompensationAccount:input_type -> hub.v1.QueryBuilderCompensationAccountRequest
+	37, // 37: hub.v1.Query.Params:output_type -> hub.v1.QueryHubParamsResponse
+	38, // 38: hub.v1.Query.Beacon:output_type -> hub.v1.QueryBeaconResponse
+	39, // 39: hub.v1.Query.VrfKey:output_type -> hub.v1.QueryVrfKeyResponse
+	40, // 40: hub.v1.Query.BuilderSet:output_type -> hub.v1.QueryBuilderSetResponse
+	41, // 41: hub.v1.Query.Builder:output_type -> hub.v1.QueryBuilderResponse
+	42, // 42: hub.v1.Query.Builders:output_type -> hub.v1.QueryBuildersResponse
+	43, // 43: hub.v1.Query.Fault:output_type -> hub.v1.QueryFaultResponse
+	44, // 44: hub.v1.Query.Earnings:output_type -> hub.v1.QueryEarningsResponse
+	45, // 45: hub.v1.Query.Model:output_type -> hub.v1.QueryModelResponse
+	46, // 46: hub.v1.Query.Models:output_type -> hub.v1.QueryModelsResponse
+	47, // 47: hub.v1.Query.Profile:output_type -> hub.v1.QueryProfileResponse
+	48, // 48: hub.v1.Query.CortexNode:output_type -> hub.v1.QueryCortexNodeResponse
+	49, // 49: hub.v1.Query.ServiceBond:output_type -> hub.v1.QueryServiceBondResponse
+	50, // 50: hub.v1.Query.WorkerQuota:output_type -> hub.v1.QueryWorkerQuotaResponse
+	51, // 51: hub.v1.Query.ServiceUnbondings:output_type -> hub.v1.QueryServiceUnbondingsResponse
+	52, // 52: hub.v1.Query.CurrentServiceKey:output_type -> hub.v1.QueryCurrentServiceKeyResponse
+	53, // 53: hub.v1.Query.ServiceDescriptor:output_type -> hub.v1.QueryServiceDescriptorResponse
+	54, // 54: hub.v1.Query.ServiceLifecycle:output_type -> hub.v1.QueryServiceLifecycleResponse
+	55, // 55: hub.v1.Query.ModelCapability:output_type -> hub.v1.QueryModelCapabilityResponse
+	56, // 56: hub.v1.Query.ModelSupport:output_type -> hub.v1.QueryModelSupportResponse
+	57, // 57: hub.v1.Query.DailySupport:output_type -> hub.v1.QueryDailySupportResponse
+	58, // 58: hub.v1.Query.CurrentCandidatePool:output_type -> hub.v1.QueryCurrentCandidatePoolResponse
+	59, // 59: hub.v1.Query.CandidatePoolSnapshot:output_type -> hub.v1.QueryCandidatePoolSnapshotResponse
+	60, // 60: hub.v1.Query.CandidatePoolMember:output_type -> hub.v1.QueryCandidatePoolMemberResponse
+	61, // 61: hub.v1.Query.CandidatePoolMembers:output_type -> hub.v1.QueryCandidatePoolMembersResponse
+	62, // 62: hub.v1.Query.CompetitionEpoch:output_type -> hub.v1.QueryCompetitionEpochResponse
+	63, // 63: hub.v1.Query.RewardEpochCursor:output_type -> hub.v1.QueryRewardEpochCursorResponse
+	64, // 64: hub.v1.Query.RewardEpochAudit:output_type -> hub.v1.QueryRewardEpochAuditResponse
+	65, // 65: hub.v1.Query.Treasury:output_type -> hub.v1.QueryTreasuryResponse
+	66, // 66: hub.v1.Query.BridgeStatus:output_type -> hub.v1.QueryBridgeStatusResponse
+	67, // 67: hub.v1.Query.ValidatorBridgeSigner:output_type -> hub.v1.QueryValidatorBridgeSignerResponse
+	68, // 68: hub.v1.Query.FreezeSignal:output_type -> hub.v1.QueryFreezeSignalResponse
+	69, // 69: hub.v1.Query.FreezeSignals:output_type -> hub.v1.QueryFreezeSignalsResponse
+	70, // 70: hub.v1.Query.EmergencyFreezeVotes:output_type -> hub.v1.QueryEmergencyFreezeVotesResponse
+	71, // 71: hub.v1.Query.TimeoutBucket:output_type -> hub.v1.QueryTimeoutBucketResponse
+	72, // 72: hub.v1.Query.CandidatePoolSnapshotMember:output_type -> hub.v1.QueryCandidatePoolSnapshotMemberResponse
+	73, // 73: hub.v1.Query.BuilderCompensationAccount:output_type -> hub.v1.QueryBuilderCompensationAccountResponse
+	37, // [37:74] is the sub-list for method output_type
+	0,  // [0:37] is the sub-list for method input_type
 	0,  // [0:0] is the sub-list for extension type_name
 	0,  // [0:0] is the sub-list for extension extendee
 	0,  // [0:0] is the sub-list for field type_name

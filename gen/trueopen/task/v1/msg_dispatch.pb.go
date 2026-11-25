@@ -27,8 +27,15 @@ type MsgRecordDispatch struct {
 	state            protoimpl.MessageState   `protogen:"open.v1"`
 	Entries          []*DispatchRecordEntryV1 `protobuf:"bytes,1,rep,name=entries,proto3" json:"entries,omitempty"`
 	SubmitterAddress string                   `protobuf:"bytes,2,opt,name=submitter_address,json=submitterAddress,proto3" json:"submitter_address,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	// Optional user statements of the input token count of orders recorded by
+	// this message, matched to an entry by order_digest. They are outside the
+	// signed dispatch record: a record is valid without them, and a statement
+	// that names no entry of this message, or whose signature does not verify
+	// under the order's key, is refused. Used only when the task's frozen
+	// input_token_tolerance is non-zero.
+	InputTokensAttestations []*OrderInputTokensAttestationV1 `protobuf:"bytes,3,rep,name=input_tokens_attestations,json=inputTokensAttestations,proto3" json:"input_tokens_attestations,omitempty"`
+	unknownFields           protoimpl.UnknownFields
+	sizeCache               protoimpl.SizeCache
 }
 
 func (x *MsgRecordDispatch) Reset() {
@@ -73,6 +80,13 @@ func (x *MsgRecordDispatch) GetSubmitterAddress() string {
 		return x.SubmitterAddress
 	}
 	return ""
+}
+
+func (x *MsgRecordDispatch) GetInputTokensAttestations() []*OrderInputTokensAttestationV1 {
+	if x != nil {
+		return x.InputTokensAttestations
+	}
+	return nil
 }
 
 // MsgRecordDispatchResponse returns one result in input order. object_id is
@@ -1199,10 +1213,11 @@ var File_task_v1_msg_dispatch_proto protoreflect.FileDescriptor
 
 const file_task_v1_msg_dispatch_proto_rawDesc = "" +
 	"\n" +
-	"\x1atask/v1/msg_dispatch.proto\x12\atask.v1\x1a\x16shared/v1/amount.proto\x1a\x16shared/v1/common.proto\x1a\x16task/v1/dispatch.proto\x1a\x1ctask/v1/dispatch_state.proto\x1a\x1ctask/v1/msg_assignment.proto\x1a\x1etask/v1/msg_verification.proto\"z\n" +
+	"\x1atask/v1/msg_dispatch.proto\x12\atask.v1\x1a\x16shared/v1/amount.proto\x1a\x16shared/v1/common.proto\x1a\x16task/v1/dispatch.proto\x1a\x1ctask/v1/dispatch_state.proto\x1a\x1ctask/v1/msg_assignment.proto\x1a\x1etask/v1/msg_verification.proto\"\xde\x01\n" +
 	"\x11MsgRecordDispatch\x128\n" +
 	"\aentries\x18\x01 \x03(\v2\x1e.task.v1.DispatchRecordEntryV1R\aentries\x12+\n" +
-	"\x11submitter_address\x18\x02 \x01(\tR\x10submitterAddress\"t\n" +
+	"\x11submitter_address\x18\x02 \x01(\tR\x10submitterAddress\x12b\n" +
+	"\x19input_tokens_attestations\x18\x03 \x03(\v2&.task.v1.OrderInputTokensAttestationV1R\x17inputTokensAttestations\"t\n" +
 	"\x19MsgRecordDispatchResponse\x124\n" +
 	"\aresults\x18\x01 \x03(\v2\x1a.task.v1.BatchItemResultV1R\aresults\x12!\n" +
 	"\fbatch_digest\x18\x02 \x01(\fR\vbatchDigest\"\xdf\x01\n" +
@@ -1316,62 +1331,64 @@ var file_task_v1_msg_dispatch_proto_goTypes = []any{
 	(*MsgRespondDispatchChallenge)(nil),                // 16: task.v1.MsgRespondDispatchChallenge
 	(*MsgRespondDispatchChallengeResponse)(nil),        // 17: task.v1.MsgRespondDispatchChallengeResponse
 	(*DispatchRecordEntryV1)(nil),                      // 18: task.v1.DispatchRecordEntryV1
-	(*BatchItemResultV1)(nil),                          // 19: task.v1.BatchItemResultV1
-	(*SignedOrderV2)(nil),                              // 20: task.v1.SignedOrderV2
-	(*DispatchTicketV1)(nil),                           // 21: task.v1.DispatchTicketV1
-	(*DispatchAcceptV1)(nil),                           // 22: task.v1.DispatchAcceptV1
-	(*v1.Amount)(nil),                                  // 23: shared.v1.Amount
-	(v1.MutationStatusV1)(0),                           // 24: shared.v1.MutationStatusV1
-	(*DispatchRecordV1)(nil),                           // 25: task.v1.DispatchRecordV1
-	(*DispatchRejectV1)(nil),                           // 26: task.v1.DispatchRejectV1
-	(DispatchCompensationClaimStatusV1)(0),             // 27: task.v1.DispatchCompensationClaimStatusV1
-	(*DispatchRosterV1)(nil),                           // 28: task.v1.DispatchRosterV1
-	(*SignedHandraiseRootV1)(nil),                      // 29: task.v1.SignedHandraiseRootV1
-	(*HandraiseInclusionProofV1)(nil),                  // 30: task.v1.HandraiseInclusionProofV1
-	(*DispatchRosterNonInclusionProofV1)(nil),          // 31: task.v1.DispatchRosterNonInclusionProofV1
-	(*DispatchChallengeState)(nil),                     // 32: task.v1.DispatchChallengeState
+	(*OrderInputTokensAttestationV1)(nil),              // 19: task.v1.OrderInputTokensAttestationV1
+	(*BatchItemResultV1)(nil),                          // 20: task.v1.BatchItemResultV1
+	(*SignedOrderV2)(nil),                              // 21: task.v1.SignedOrderV2
+	(*DispatchTicketV1)(nil),                           // 22: task.v1.DispatchTicketV1
+	(*DispatchAcceptV1)(nil),                           // 23: task.v1.DispatchAcceptV1
+	(*v1.Amount)(nil),                                  // 24: shared.v1.Amount
+	(v1.MutationStatusV1)(0),                           // 25: shared.v1.MutationStatusV1
+	(*DispatchRecordV1)(nil),                           // 26: task.v1.DispatchRecordV1
+	(*DispatchRejectV1)(nil),                           // 27: task.v1.DispatchRejectV1
+	(DispatchCompensationClaimStatusV1)(0),             // 28: task.v1.DispatchCompensationClaimStatusV1
+	(*DispatchRosterV1)(nil),                           // 29: task.v1.DispatchRosterV1
+	(*SignedHandraiseRootV1)(nil),                      // 30: task.v1.SignedHandraiseRootV1
+	(*HandraiseInclusionProofV1)(nil),                  // 31: task.v1.HandraiseInclusionProofV1
+	(*DispatchRosterNonInclusionProofV1)(nil),          // 32: task.v1.DispatchRosterNonInclusionProofV1
+	(*DispatchChallengeState)(nil),                     // 33: task.v1.DispatchChallengeState
 }
 var file_task_v1_msg_dispatch_proto_depIdxs = []int32{
 	18, // 0: task.v1.MsgRecordDispatch.entries:type_name -> task.v1.DispatchRecordEntryV1
-	19, // 1: task.v1.MsgRecordDispatchResponse.results:type_name -> task.v1.BatchItemResultV1
-	20, // 2: task.v1.MsgClaimDispatchCompensation.order:type_name -> task.v1.SignedOrderV2
-	21, // 3: task.v1.MsgClaimDispatchCompensation.ticket:type_name -> task.v1.DispatchTicketV1
-	22, // 4: task.v1.MsgClaimDispatchCompensation.accept:type_name -> task.v1.DispatchAcceptV1
-	23, // 5: task.v1.MsgClaimDispatchCompensationResponse.amount:type_name -> shared.v1.Amount
-	24, // 6: task.v1.MsgClaimDispatchCompensationResponse.status:type_name -> shared.v1.MutationStatusV1
-	25, // 7: task.v1.MsgRebutDispatchCompensation.record:type_name -> task.v1.DispatchRecordV1
-	26, // 8: task.v1.MsgRebutDispatchCompensation.reject:type_name -> task.v1.DispatchRejectV1
-	27, // 9: task.v1.MsgRebutDispatchCompensationResponse.claim_status:type_name -> task.v1.DispatchCompensationClaimStatusV1
-	24, // 10: task.v1.MsgRebutDispatchCompensationResponse.status:type_name -> shared.v1.MutationStatusV1
-	28, // 11: task.v1.MsgChallengeDispatchOmission.roster:type_name -> task.v1.DispatchRosterV1
-	28, // 12: task.v1.MsgChallengeDispatchOmission.first_round_roster:type_name -> task.v1.DispatchRosterV1
-	29, // 13: task.v1.MsgChallengeDispatchOmission.handraise_root:type_name -> task.v1.SignedHandraiseRootV1
-	30, // 14: task.v1.MsgChallengeDispatchOmission.inclusion_proof:type_name -> task.v1.HandraiseInclusionProofV1
-	31, // 15: task.v1.MsgChallengeDispatchOmission.non_inclusion_proof:type_name -> task.v1.DispatchRosterNonInclusionProofV1
-	29, // 16: task.v1.MsgChallengeDispatchOmission.bound_handraise_root:type_name -> task.v1.SignedHandraiseRootV1
-	32, // 17: task.v1.MsgChallengeDispatchOmissionResponse.challenge:type_name -> task.v1.DispatchChallengeState
-	24, // 18: task.v1.MsgChallengeDispatchOmissionResponse.status:type_name -> shared.v1.MutationStatusV1
-	28, // 19: task.v1.MsgChallengeDispatchDraw.roster:type_name -> task.v1.DispatchRosterV1
-	28, // 20: task.v1.MsgChallengeDispatchDraw.first_round_roster:type_name -> task.v1.DispatchRosterV1
-	32, // 21: task.v1.MsgChallengeDispatchDrawResponse.challenge:type_name -> task.v1.DispatchChallengeState
-	24, // 22: task.v1.MsgChallengeDispatchDrawResponse.status:type_name -> shared.v1.MutationStatusV1
-	32, // 23: task.v1.MsgChallengeDispatchSkipResponse.challenge:type_name -> task.v1.DispatchChallengeState
-	24, // 24: task.v1.MsgChallengeDispatchSkipResponse.status:type_name -> shared.v1.MutationStatusV1
-	32, // 25: task.v1.MsgReportDispatchRosterUnavailableResponse.challenge:type_name -> task.v1.DispatchChallengeState
-	24, // 26: task.v1.MsgReportDispatchRosterUnavailableResponse.status:type_name -> shared.v1.MutationStatusV1
-	25, // 27: task.v1.MsgChallengeDispatchDoubleDispatch.record:type_name -> task.v1.DispatchRecordV1
-	20, // 28: task.v1.MsgChallengeDispatchDoubleDispatch.order:type_name -> task.v1.SignedOrderV2
-	32, // 29: task.v1.MsgChallengeDispatchDoubleDispatchResponse.challenge:type_name -> task.v1.DispatchChallengeState
-	24, // 30: task.v1.MsgChallengeDispatchDoubleDispatchResponse.status:type_name -> shared.v1.MutationStatusV1
-	26, // 31: task.v1.MsgRespondDispatchChallenge.reject:type_name -> task.v1.DispatchRejectV1
-	28, // 32: task.v1.MsgRespondDispatchChallenge.roster:type_name -> task.v1.DispatchRosterV1
-	32, // 33: task.v1.MsgRespondDispatchChallengeResponse.challenge:type_name -> task.v1.DispatchChallengeState
-	24, // 34: task.v1.MsgRespondDispatchChallengeResponse.status:type_name -> shared.v1.MutationStatusV1
-	35, // [35:35] is the sub-list for method output_type
-	35, // [35:35] is the sub-list for method input_type
-	35, // [35:35] is the sub-list for extension type_name
-	35, // [35:35] is the sub-list for extension extendee
-	0,  // [0:35] is the sub-list for field type_name
+	19, // 1: task.v1.MsgRecordDispatch.input_tokens_attestations:type_name -> task.v1.OrderInputTokensAttestationV1
+	20, // 2: task.v1.MsgRecordDispatchResponse.results:type_name -> task.v1.BatchItemResultV1
+	21, // 3: task.v1.MsgClaimDispatchCompensation.order:type_name -> task.v1.SignedOrderV2
+	22, // 4: task.v1.MsgClaimDispatchCompensation.ticket:type_name -> task.v1.DispatchTicketV1
+	23, // 5: task.v1.MsgClaimDispatchCompensation.accept:type_name -> task.v1.DispatchAcceptV1
+	24, // 6: task.v1.MsgClaimDispatchCompensationResponse.amount:type_name -> shared.v1.Amount
+	25, // 7: task.v1.MsgClaimDispatchCompensationResponse.status:type_name -> shared.v1.MutationStatusV1
+	26, // 8: task.v1.MsgRebutDispatchCompensation.record:type_name -> task.v1.DispatchRecordV1
+	27, // 9: task.v1.MsgRebutDispatchCompensation.reject:type_name -> task.v1.DispatchRejectV1
+	28, // 10: task.v1.MsgRebutDispatchCompensationResponse.claim_status:type_name -> task.v1.DispatchCompensationClaimStatusV1
+	25, // 11: task.v1.MsgRebutDispatchCompensationResponse.status:type_name -> shared.v1.MutationStatusV1
+	29, // 12: task.v1.MsgChallengeDispatchOmission.roster:type_name -> task.v1.DispatchRosterV1
+	29, // 13: task.v1.MsgChallengeDispatchOmission.first_round_roster:type_name -> task.v1.DispatchRosterV1
+	30, // 14: task.v1.MsgChallengeDispatchOmission.handraise_root:type_name -> task.v1.SignedHandraiseRootV1
+	31, // 15: task.v1.MsgChallengeDispatchOmission.inclusion_proof:type_name -> task.v1.HandraiseInclusionProofV1
+	32, // 16: task.v1.MsgChallengeDispatchOmission.non_inclusion_proof:type_name -> task.v1.DispatchRosterNonInclusionProofV1
+	30, // 17: task.v1.MsgChallengeDispatchOmission.bound_handraise_root:type_name -> task.v1.SignedHandraiseRootV1
+	33, // 18: task.v1.MsgChallengeDispatchOmissionResponse.challenge:type_name -> task.v1.DispatchChallengeState
+	25, // 19: task.v1.MsgChallengeDispatchOmissionResponse.status:type_name -> shared.v1.MutationStatusV1
+	29, // 20: task.v1.MsgChallengeDispatchDraw.roster:type_name -> task.v1.DispatchRosterV1
+	29, // 21: task.v1.MsgChallengeDispatchDraw.first_round_roster:type_name -> task.v1.DispatchRosterV1
+	33, // 22: task.v1.MsgChallengeDispatchDrawResponse.challenge:type_name -> task.v1.DispatchChallengeState
+	25, // 23: task.v1.MsgChallengeDispatchDrawResponse.status:type_name -> shared.v1.MutationStatusV1
+	33, // 24: task.v1.MsgChallengeDispatchSkipResponse.challenge:type_name -> task.v1.DispatchChallengeState
+	25, // 25: task.v1.MsgChallengeDispatchSkipResponse.status:type_name -> shared.v1.MutationStatusV1
+	33, // 26: task.v1.MsgReportDispatchRosterUnavailableResponse.challenge:type_name -> task.v1.DispatchChallengeState
+	25, // 27: task.v1.MsgReportDispatchRosterUnavailableResponse.status:type_name -> shared.v1.MutationStatusV1
+	26, // 28: task.v1.MsgChallengeDispatchDoubleDispatch.record:type_name -> task.v1.DispatchRecordV1
+	21, // 29: task.v1.MsgChallengeDispatchDoubleDispatch.order:type_name -> task.v1.SignedOrderV2
+	33, // 30: task.v1.MsgChallengeDispatchDoubleDispatchResponse.challenge:type_name -> task.v1.DispatchChallengeState
+	25, // 31: task.v1.MsgChallengeDispatchDoubleDispatchResponse.status:type_name -> shared.v1.MutationStatusV1
+	27, // 32: task.v1.MsgRespondDispatchChallenge.reject:type_name -> task.v1.DispatchRejectV1
+	29, // 33: task.v1.MsgRespondDispatchChallenge.roster:type_name -> task.v1.DispatchRosterV1
+	33, // 34: task.v1.MsgRespondDispatchChallengeResponse.challenge:type_name -> task.v1.DispatchChallengeState
+	25, // 35: task.v1.MsgRespondDispatchChallengeResponse.status:type_name -> shared.v1.MutationStatusV1
+	36, // [36:36] is the sub-list for method output_type
+	36, // [36:36] is the sub-list for method input_type
+	36, // [36:36] is the sub-list for extension type_name
+	36, // [36:36] is the sub-list for extension extendee
+	0,  // [0:36] is the sub-list for field type_name
 }
 
 func init() { file_task_v1_msg_dispatch_proto_init() }

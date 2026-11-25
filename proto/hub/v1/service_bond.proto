@@ -20,6 +20,31 @@ message ServiceBondState {
   uint32 normal_action_count_since_jail = 10;
   uint64 last_stake_height = 11;
   uint64 last_unstake_height = 12;
+  // Accounts that funded the bond: the signer of the first stake message and
+  // of later top-ups from other accounts, at most four. A Verifier whose bond
+  // shares a funder with a Worker's bond is not drawn to audit that Worker.
+  repeated string bond_funder_addresses = 13;
+  // The operator is not a Worker dispatch candidate while this is set. It may
+  // finish tasks already assigned and may still be drawn as a Verifier.
+  bool dispatch_paused = 14;
+  // Why dispatch is paused, as a bit set: 1 = an anchor audit awaits a late
+  // submission, 2 = a service unbonding was requested, 4 = jailed.
+  uint32 pause_reasons = 15;
+}
+
+// WorkerQuotaState is the order value one Worker has reserved and settled in
+// one settlement period (key (operator_address, period)). The quota of a
+// period is effective_active_bond * worker_quota_period_value_bps_of_bond /
+// 10000; a dispatch record whose maximum order value exceeds what is left is
+// refused, and the reservation shrinks to the actual value at task finality.
+message WorkerQuotaState {
+  string operator_address = 1;
+  uint64 period = 2;
+  // Sum of the maximum order values of the period's tasks not final yet.
+  uint64 reserved_value = 3;
+  // Sum of the actual order values of the period's final tasks.
+  uint64 settled_value = 4;
+  uint64 updated_height = 5;
 }
 
 // UnbondingState is one open or matured service unbonding entry (6.4).

@@ -102,8 +102,14 @@ type InferEvidenceRequirementV1 struct {
 	EvidenceKind            EvidenceKind           `protobuf:"varint,1,opt,name=evidence_kind,json=evidenceKind,proto3,enum=shared.v1.EvidenceKind" json:"evidence_kind,omitempty"`
 	CommitmentSchemaVersion uint32                 `protobuf:"varint,2,opt,name=commitment_schema_version,json=commitmentSchemaVersion,proto3" json:"commitment_schema_version,omitempty"`
 	MaxEncodedSizeBytes     uint64                 `protobuf:"varint,3,opt,name=max_encoded_size_bytes,json=maxEncodedSizeBytes,proto3" json:"max_encoded_size_bytes,omitempty"`
-	unknownFields           protoimpl.UnknownFields
-	sizeCache               protoimpl.SizeCache
+	// WORKER_ANCHOR_OPENING only, optional: sha256 of the canonical
+	// registration.json of the verification registration (which binds the
+	// weight commitments and thresholds) this Profile version is audited
+	// against. An entry that leaves it empty is encoded and hashed exactly as
+	// before; an entry that sets it includes it in evidence_schema_hash.
+	RegistrationHash []byte `protobuf:"bytes,4,opt,name=registration_hash,json=registrationHash,proto3" json:"registration_hash,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *InferEvidenceRequirementV1) Reset() {
@@ -155,6 +161,13 @@ func (x *InferEvidenceRequirementV1) GetMaxEncodedSizeBytes() uint64 {
 		return x.MaxEncodedSizeBytes
 	}
 	return 0
+}
+
+func (x *InferEvidenceRequirementV1) GetRegistrationHash() []byte {
+	if x != nil {
+		return x.RegistrationHash
+	}
+	return nil
 }
 
 // EvidenceSchemaV1 is the readable descriptor committed by
@@ -216,11 +229,12 @@ var File_shared_v1_evidence_proto protoreflect.FileDescriptor
 
 const file_shared_v1_evidence_proto_rawDesc = "" +
 	"\n" +
-	"\x18shared/v1/evidence.proto\x12\tshared.v1\"\xcb\x01\n" +
+	"\x18shared/v1/evidence.proto\x12\tshared.v1\"\xf8\x01\n" +
 	"\x1aInferEvidenceRequirementV1\x12<\n" +
 	"\revidence_kind\x18\x01 \x01(\x0e2\x17.shared.v1.EvidenceKindR\fevidenceKind\x12:\n" +
 	"\x19commitment_schema_version\x18\x02 \x01(\rR\x17commitmentSchemaVersion\x123\n" +
-	"\x16max_encoded_size_bytes\x18\x03 \x01(\x04R\x13maxEncodedSizeBytes\"\x98\x01\n" +
+	"\x16max_encoded_size_bytes\x18\x03 \x01(\x04R\x13maxEncodedSizeBytes\x12+\n" +
+	"\x11registration_hash\x18\x04 \x01(\fR\x10registrationHash\"\x98\x01\n" +
 	"\x10EvidenceSchemaV1\x12%\n" +
 	"\x0eschema_version\x18\x01 \x01(\rR\rschemaVersion\x12]\n" +
 	"\x17required_infer_evidence\x18\x02 \x03(\v2%.shared.v1.InferEvidenceRequirementV1R\x15requiredInferEvidence*\xfb\x01\n" +

@@ -134,6 +134,33 @@ message ServiceParamsV1 {
   // Positive block delay for newly scheduled min_stake increases. Updating it
   // never changes a pending_effective_height already stored on a model.
   uint64 min_stake_grace_period_blocks = 22;
+
+  // Fields 23-28: Worker bond floor, order quota and unbonding conditions.
+  // All zero/false/empty by default, which keeps today's behaviour.
+
+  // Documentation of how worker_bond_floor_by_tier was sized: the number of
+  // settlement periods of full-load revenue the floor stands for.
+  uint32 worker_bond_floor_revenue_periods = 23;
+  // Order value a Worker may have reserved in one settlement period, in basis
+  // points of its effective bond. Zero means no quota.
+  uint32 worker_quota_period_value_bps_of_bond = 24;
+  // A service unbonding request pauses dispatch to the operator at once.
+  bool stop_dispatch_on_unbond_request = 25;
+  // An unbonding matures only when the operator has no task without a final
+  // verdict, no unsettled batch and no audit awaiting a late submission.
+  bool unbond_requires_no_open_tasks = 26;
+  // An account, service address or key that belongs to a bonded consensus
+  // validator may not declare audit capability nor be drawn for a panel.
+  bool min_validator_separation = 27;
+  // Minimum effective bond of a Worker dispatch candidate per resource tier.
+  repeated WorkerBondFloorV1 worker_bond_floor_by_tier = 28;
+}
+
+// WorkerBondFloorV1 is the minimum effective bond of a Worker serving Profiles
+// of one resource tier.
+message WorkerBondFloorV1 {
+  uint32 resource_tier = 1;
+  shared.v1.Amount min_bond = 2;
 }
 
 // BuilderParamsV1 groups governed fixed-set and duty parameters.

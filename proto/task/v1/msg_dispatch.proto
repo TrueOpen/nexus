@@ -15,6 +15,13 @@ option go_package = "github.com/TrueOpen/nexus/gen/trueopen/task/v1;taskv1";
 message MsgRecordDispatch {
   repeated DispatchRecordEntryV1 entries = 1;
   string submitter_address = 2;
+  // Optional user statements of the input token count of orders recorded by
+  // this message, matched to an entry by order_digest. They are outside the
+  // signed dispatch record: a record is valid without them, and a statement
+  // that names no entry of this message, or whose signature does not verify
+  // under the order's key, is refused. Used only when the task's frozen
+  // input_token_tolerance is non-zero.
+  repeated OrderInputTokensAttestationV1 input_tokens_attestations = 3;
 }
 // MsgRecordDispatchResponse returns one result in input order. object_id is
 // dispatch_record_entry_digest for dispatch, takeover_entry_digest for takeover;

@@ -1294,6 +1294,166 @@ func (x *QueryServiceBondResponse) GetBond() *ServiceBondState {
 	return nil
 }
 
+// QueryWorkerQuotaRequest selects one Worker; period zero means the current
+// settlement period.
+type QueryWorkerQuotaRequest struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	OperatorAddress string                 `protobuf:"bytes,1,opt,name=operator_address,json=operatorAddress,proto3" json:"operator_address,omitempty"`
+	Period          uint64                 `protobuf:"varint,2,opt,name=period,proto3" json:"period,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *QueryWorkerQuotaRequest) Reset() {
+	*x = QueryWorkerQuotaRequest{}
+	mi := &file_hub_v1_query_registry_proto_msgTypes[25]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *QueryWorkerQuotaRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*QueryWorkerQuotaRequest) ProtoMessage() {}
+
+func (x *QueryWorkerQuotaRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_hub_v1_query_registry_proto_msgTypes[25]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use QueryWorkerQuotaRequest.ProtoReflect.Descriptor instead.
+func (*QueryWorkerQuotaRequest) Descriptor() ([]byte, []int) {
+	return file_hub_v1_query_registry_proto_rawDescGZIP(), []int{25}
+}
+
+func (x *QueryWorkerQuotaRequest) GetOperatorAddress() string {
+	if x != nil {
+		return x.OperatorAddress
+	}
+	return ""
+}
+
+func (x *QueryWorkerQuotaRequest) GetPeriod() uint64 {
+	if x != nil {
+		return x.Period
+	}
+	return 0
+}
+
+// QueryWorkerQuotaResponse returns the period's quota and what is left of it.
+type QueryWorkerQuotaResponse struct {
+	state  protoimpl.MessageState `protogen:"open.v1"`
+	Period uint64                 `protobuf:"varint,1,opt,name=period,proto3" json:"period,omitempty"`
+	// effective bond * worker_quota_period_value_bps_of_bond / 10000; zero when
+	// no quota is configured.
+	Quota         uint64 `protobuf:"varint,2,opt,name=quota,proto3" json:"quota,omitempty"`
+	ReservedValue uint64 `protobuf:"varint,3,opt,name=reserved_value,json=reservedValue,proto3" json:"reserved_value,omitempty"`
+	SettledValue  uint64 `protobuf:"varint,4,opt,name=settled_value,json=settledValue,proto3" json:"settled_value,omitempty"`
+	// quota - reserved_value - settled_value, floored at zero.
+	Remaining uint64 `protobuf:"varint,5,opt,name=remaining,proto3" json:"remaining,omitempty"`
+	// Whether a quota is enforced at all.
+	Enforced bool `protobuf:"varint,6,opt,name=enforced,proto3" json:"enforced,omitempty"`
+	// Mirrors ServiceBondState: a paused Worker gets no orders whatever is left.
+	DispatchPaused bool   `protobuf:"varint,7,opt,name=dispatch_paused,json=dispatchPaused,proto3" json:"dispatch_paused,omitempty"`
+	PauseReasons   uint32 `protobuf:"varint,8,opt,name=pause_reasons,json=pauseReasons,proto3" json:"pause_reasons,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *QueryWorkerQuotaResponse) Reset() {
+	*x = QueryWorkerQuotaResponse{}
+	mi := &file_hub_v1_query_registry_proto_msgTypes[26]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *QueryWorkerQuotaResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*QueryWorkerQuotaResponse) ProtoMessage() {}
+
+func (x *QueryWorkerQuotaResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_hub_v1_query_registry_proto_msgTypes[26]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use QueryWorkerQuotaResponse.ProtoReflect.Descriptor instead.
+func (*QueryWorkerQuotaResponse) Descriptor() ([]byte, []int) {
+	return file_hub_v1_query_registry_proto_rawDescGZIP(), []int{26}
+}
+
+func (x *QueryWorkerQuotaResponse) GetPeriod() uint64 {
+	if x != nil {
+		return x.Period
+	}
+	return 0
+}
+
+func (x *QueryWorkerQuotaResponse) GetQuota() uint64 {
+	if x != nil {
+		return x.Quota
+	}
+	return 0
+}
+
+func (x *QueryWorkerQuotaResponse) GetReservedValue() uint64 {
+	if x != nil {
+		return x.ReservedValue
+	}
+	return 0
+}
+
+func (x *QueryWorkerQuotaResponse) GetSettledValue() uint64 {
+	if x != nil {
+		return x.SettledValue
+	}
+	return 0
+}
+
+func (x *QueryWorkerQuotaResponse) GetRemaining() uint64 {
+	if x != nil {
+		return x.Remaining
+	}
+	return 0
+}
+
+func (x *QueryWorkerQuotaResponse) GetEnforced() bool {
+	if x != nil {
+		return x.Enforced
+	}
+	return false
+}
+
+func (x *QueryWorkerQuotaResponse) GetDispatchPaused() bool {
+	if x != nil {
+		return x.DispatchPaused
+	}
+	return false
+}
+
+func (x *QueryWorkerQuotaResponse) GetPauseReasons() uint32 {
+	if x != nil {
+		return x.PauseReasons
+	}
+	return 0
+}
+
 // QueryServiceUnbondingsRequest pages one operator status slice.
 type QueryServiceUnbondingsRequest struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
@@ -1306,7 +1466,7 @@ type QueryServiceUnbondingsRequest struct {
 
 func (x *QueryServiceUnbondingsRequest) Reset() {
 	*x = QueryServiceUnbondingsRequest{}
-	mi := &file_hub_v1_query_registry_proto_msgTypes[25]
+	mi := &file_hub_v1_query_registry_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1318,7 +1478,7 @@ func (x *QueryServiceUnbondingsRequest) String() string {
 func (*QueryServiceUnbondingsRequest) ProtoMessage() {}
 
 func (x *QueryServiceUnbondingsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_hub_v1_query_registry_proto_msgTypes[25]
+	mi := &file_hub_v1_query_registry_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1331,7 +1491,7 @@ func (x *QueryServiceUnbondingsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QueryServiceUnbondingsRequest.ProtoReflect.Descriptor instead.
 func (*QueryServiceUnbondingsRequest) Descriptor() ([]byte, []int) {
-	return file_hub_v1_query_registry_proto_rawDescGZIP(), []int{25}
+	return file_hub_v1_query_registry_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *QueryServiceUnbondingsRequest) GetOperatorAddress() string {
@@ -1366,7 +1526,7 @@ type QueryServiceUnbondingsResponse struct {
 
 func (x *QueryServiceUnbondingsResponse) Reset() {
 	*x = QueryServiceUnbondingsResponse{}
-	mi := &file_hub_v1_query_registry_proto_msgTypes[26]
+	mi := &file_hub_v1_query_registry_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1378,7 +1538,7 @@ func (x *QueryServiceUnbondingsResponse) String() string {
 func (*QueryServiceUnbondingsResponse) ProtoMessage() {}
 
 func (x *QueryServiceUnbondingsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_hub_v1_query_registry_proto_msgTypes[26]
+	mi := &file_hub_v1_query_registry_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1391,7 +1551,7 @@ func (x *QueryServiceUnbondingsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QueryServiceUnbondingsResponse.ProtoReflect.Descriptor instead.
 func (*QueryServiceUnbondingsResponse) Descriptor() ([]byte, []int) {
-	return file_hub_v1_query_registry_proto_rawDescGZIP(), []int{26}
+	return file_hub_v1_query_registry_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *QueryServiceUnbondingsResponse) GetEntries() []*UnbondingState {
@@ -1419,7 +1579,7 @@ type QueryCurrentServiceKeyRequest struct {
 
 func (x *QueryCurrentServiceKeyRequest) Reset() {
 	*x = QueryCurrentServiceKeyRequest{}
-	mi := &file_hub_v1_query_registry_proto_msgTypes[27]
+	mi := &file_hub_v1_query_registry_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1431,7 +1591,7 @@ func (x *QueryCurrentServiceKeyRequest) String() string {
 func (*QueryCurrentServiceKeyRequest) ProtoMessage() {}
 
 func (x *QueryCurrentServiceKeyRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_hub_v1_query_registry_proto_msgTypes[27]
+	mi := &file_hub_v1_query_registry_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1444,7 +1604,7 @@ func (x *QueryCurrentServiceKeyRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QueryCurrentServiceKeyRequest.ProtoReflect.Descriptor instead.
 func (*QueryCurrentServiceKeyRequest) Descriptor() ([]byte, []int) {
-	return file_hub_v1_query_registry_proto_rawDescGZIP(), []int{27}
+	return file_hub_v1_query_registry_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *QueryCurrentServiceKeyRequest) GetParticipantType() v1.ParticipantType {
@@ -1471,7 +1631,7 @@ type QueryCurrentServiceKeyResponse struct {
 
 func (x *QueryCurrentServiceKeyResponse) Reset() {
 	*x = QueryCurrentServiceKeyResponse{}
-	mi := &file_hub_v1_query_registry_proto_msgTypes[28]
+	mi := &file_hub_v1_query_registry_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1483,7 +1643,7 @@ func (x *QueryCurrentServiceKeyResponse) String() string {
 func (*QueryCurrentServiceKeyResponse) ProtoMessage() {}
 
 func (x *QueryCurrentServiceKeyResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_hub_v1_query_registry_proto_msgTypes[28]
+	mi := &file_hub_v1_query_registry_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1496,7 +1656,7 @@ func (x *QueryCurrentServiceKeyResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QueryCurrentServiceKeyResponse.ProtoReflect.Descriptor instead.
 func (*QueryCurrentServiceKeyResponse) Descriptor() ([]byte, []int) {
-	return file_hub_v1_query_registry_proto_rawDescGZIP(), []int{28}
+	return file_hub_v1_query_registry_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *QueryCurrentServiceKeyResponse) GetBinding() *CurrentServiceKeyViewV1 {
@@ -1517,7 +1677,7 @@ type QueryServiceDescriptorRequest struct {
 
 func (x *QueryServiceDescriptorRequest) Reset() {
 	*x = QueryServiceDescriptorRequest{}
-	mi := &file_hub_v1_query_registry_proto_msgTypes[29]
+	mi := &file_hub_v1_query_registry_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1529,7 +1689,7 @@ func (x *QueryServiceDescriptorRequest) String() string {
 func (*QueryServiceDescriptorRequest) ProtoMessage() {}
 
 func (x *QueryServiceDescriptorRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_hub_v1_query_registry_proto_msgTypes[29]
+	mi := &file_hub_v1_query_registry_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1542,7 +1702,7 @@ func (x *QueryServiceDescriptorRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QueryServiceDescriptorRequest.ProtoReflect.Descriptor instead.
 func (*QueryServiceDescriptorRequest) Descriptor() ([]byte, []int) {
-	return file_hub_v1_query_registry_proto_rawDescGZIP(), []int{29}
+	return file_hub_v1_query_registry_proto_rawDescGZIP(), []int{31}
 }
 
 func (x *QueryServiceDescriptorRequest) GetParticipantType() v1.ParticipantType {
@@ -1569,7 +1729,7 @@ type QueryServiceDescriptorResponse struct {
 
 func (x *QueryServiceDescriptorResponse) Reset() {
 	*x = QueryServiceDescriptorResponse{}
-	mi := &file_hub_v1_query_registry_proto_msgTypes[30]
+	mi := &file_hub_v1_query_registry_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1581,7 +1741,7 @@ func (x *QueryServiceDescriptorResponse) String() string {
 func (*QueryServiceDescriptorResponse) ProtoMessage() {}
 
 func (x *QueryServiceDescriptorResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_hub_v1_query_registry_proto_msgTypes[30]
+	mi := &file_hub_v1_query_registry_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1594,7 +1754,7 @@ func (x *QueryServiceDescriptorResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QueryServiceDescriptorResponse.ProtoReflect.Descriptor instead.
 func (*QueryServiceDescriptorResponse) Descriptor() ([]byte, []int) {
-	return file_hub_v1_query_registry_proto_rawDescGZIP(), []int{30}
+	return file_hub_v1_query_registry_proto_rawDescGZIP(), []int{32}
 }
 
 func (x *QueryServiceDescriptorResponse) GetDescriptor_() *ServiceDescriptorState {
@@ -1615,7 +1775,7 @@ type QueryModelCapabilityRequest struct {
 
 func (x *QueryModelCapabilityRequest) Reset() {
 	*x = QueryModelCapabilityRequest{}
-	mi := &file_hub_v1_query_registry_proto_msgTypes[31]
+	mi := &file_hub_v1_query_registry_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1627,7 +1787,7 @@ func (x *QueryModelCapabilityRequest) String() string {
 func (*QueryModelCapabilityRequest) ProtoMessage() {}
 
 func (x *QueryModelCapabilityRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_hub_v1_query_registry_proto_msgTypes[31]
+	mi := &file_hub_v1_query_registry_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1640,7 +1800,7 @@ func (x *QueryModelCapabilityRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QueryModelCapabilityRequest.ProtoReflect.Descriptor instead.
 func (*QueryModelCapabilityRequest) Descriptor() ([]byte, []int) {
-	return file_hub_v1_query_registry_proto_rawDescGZIP(), []int{31}
+	return file_hub_v1_query_registry_proto_rawDescGZIP(), []int{33}
 }
 
 func (x *QueryModelCapabilityRequest) GetOperatorAddress() string {
@@ -1667,7 +1827,7 @@ type QueryModelCapabilityResponse struct {
 
 func (x *QueryModelCapabilityResponse) Reset() {
 	*x = QueryModelCapabilityResponse{}
-	mi := &file_hub_v1_query_registry_proto_msgTypes[32]
+	mi := &file_hub_v1_query_registry_proto_msgTypes[34]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1679,7 +1839,7 @@ func (x *QueryModelCapabilityResponse) String() string {
 func (*QueryModelCapabilityResponse) ProtoMessage() {}
 
 func (x *QueryModelCapabilityResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_hub_v1_query_registry_proto_msgTypes[32]
+	mi := &file_hub_v1_query_registry_proto_msgTypes[34]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1692,7 +1852,7 @@ func (x *QueryModelCapabilityResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QueryModelCapabilityResponse.ProtoReflect.Descriptor instead.
 func (*QueryModelCapabilityResponse) Descriptor() ([]byte, []int) {
-	return file_hub_v1_query_registry_proto_rawDescGZIP(), []int{32}
+	return file_hub_v1_query_registry_proto_rawDescGZIP(), []int{34}
 }
 
 func (x *QueryModelCapabilityResponse) GetCapability() *ModelCapabilityState {
@@ -1713,7 +1873,7 @@ type QueryModelSupportRequest struct {
 
 func (x *QueryModelSupportRequest) Reset() {
 	*x = QueryModelSupportRequest{}
-	mi := &file_hub_v1_query_registry_proto_msgTypes[33]
+	mi := &file_hub_v1_query_registry_proto_msgTypes[35]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1725,7 +1885,7 @@ func (x *QueryModelSupportRequest) String() string {
 func (*QueryModelSupportRequest) ProtoMessage() {}
 
 func (x *QueryModelSupportRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_hub_v1_query_registry_proto_msgTypes[33]
+	mi := &file_hub_v1_query_registry_proto_msgTypes[35]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1738,7 +1898,7 @@ func (x *QueryModelSupportRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QueryModelSupportRequest.ProtoReflect.Descriptor instead.
 func (*QueryModelSupportRequest) Descriptor() ([]byte, []int) {
-	return file_hub_v1_query_registry_proto_rawDescGZIP(), []int{33}
+	return file_hub_v1_query_registry_proto_rawDescGZIP(), []int{35}
 }
 
 func (x *QueryModelSupportRequest) GetOperatorAddress() string {
@@ -1765,7 +1925,7 @@ type QueryModelSupportResponse struct {
 
 func (x *QueryModelSupportResponse) Reset() {
 	*x = QueryModelSupportResponse{}
-	mi := &file_hub_v1_query_registry_proto_msgTypes[34]
+	mi := &file_hub_v1_query_registry_proto_msgTypes[36]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1777,7 +1937,7 @@ func (x *QueryModelSupportResponse) String() string {
 func (*QueryModelSupportResponse) ProtoMessage() {}
 
 func (x *QueryModelSupportResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_hub_v1_query_registry_proto_msgTypes[34]
+	mi := &file_hub_v1_query_registry_proto_msgTypes[36]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1790,7 +1950,7 @@ func (x *QueryModelSupportResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QueryModelSupportResponse.ProtoReflect.Descriptor instead.
 func (*QueryModelSupportResponse) Descriptor() ([]byte, []int) {
-	return file_hub_v1_query_registry_proto_rawDescGZIP(), []int{34}
+	return file_hub_v1_query_registry_proto_rawDescGZIP(), []int{36}
 }
 
 func (x *QueryModelSupportResponse) GetSupport() *ModelSupportState {
@@ -1811,7 +1971,7 @@ type QueryDailySupportRequest struct {
 
 func (x *QueryDailySupportRequest) Reset() {
 	*x = QueryDailySupportRequest{}
-	mi := &file_hub_v1_query_registry_proto_msgTypes[35]
+	mi := &file_hub_v1_query_registry_proto_msgTypes[37]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1823,7 +1983,7 @@ func (x *QueryDailySupportRequest) String() string {
 func (*QueryDailySupportRequest) ProtoMessage() {}
 
 func (x *QueryDailySupportRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_hub_v1_query_registry_proto_msgTypes[35]
+	mi := &file_hub_v1_query_registry_proto_msgTypes[37]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1836,7 +1996,7 @@ func (x *QueryDailySupportRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QueryDailySupportRequest.ProtoReflect.Descriptor instead.
 func (*QueryDailySupportRequest) Descriptor() ([]byte, []int) {
-	return file_hub_v1_query_registry_proto_rawDescGZIP(), []int{35}
+	return file_hub_v1_query_registry_proto_rawDescGZIP(), []int{37}
 }
 
 func (x *QueryDailySupportRequest) GetOperatorAddress() string {
@@ -1863,7 +2023,7 @@ type QueryDailySupportResponse struct {
 
 func (x *QueryDailySupportResponse) Reset() {
 	*x = QueryDailySupportResponse{}
-	mi := &file_hub_v1_query_registry_proto_msgTypes[36]
+	mi := &file_hub_v1_query_registry_proto_msgTypes[38]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1875,7 +2035,7 @@ func (x *QueryDailySupportResponse) String() string {
 func (*QueryDailySupportResponse) ProtoMessage() {}
 
 func (x *QueryDailySupportResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_hub_v1_query_registry_proto_msgTypes[36]
+	mi := &file_hub_v1_query_registry_proto_msgTypes[38]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1888,7 +2048,7 @@ func (x *QueryDailySupportResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QueryDailySupportResponse.ProtoReflect.Descriptor instead.
 func (*QueryDailySupportResponse) Descriptor() ([]byte, []int) {
-	return file_hub_v1_query_registry_proto_rawDescGZIP(), []int{36}
+	return file_hub_v1_query_registry_proto_rawDescGZIP(), []int{38}
 }
 
 func (x *QueryDailySupportResponse) GetSupport() *DailySupportState {
@@ -1908,7 +2068,7 @@ type QueryServiceLifecycleRequest struct {
 
 func (x *QueryServiceLifecycleRequest) Reset() {
 	*x = QueryServiceLifecycleRequest{}
-	mi := &file_hub_v1_query_registry_proto_msgTypes[37]
+	mi := &file_hub_v1_query_registry_proto_msgTypes[39]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1920,7 +2080,7 @@ func (x *QueryServiceLifecycleRequest) String() string {
 func (*QueryServiceLifecycleRequest) ProtoMessage() {}
 
 func (x *QueryServiceLifecycleRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_hub_v1_query_registry_proto_msgTypes[37]
+	mi := &file_hub_v1_query_registry_proto_msgTypes[39]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1933,7 +2093,7 @@ func (x *QueryServiceLifecycleRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QueryServiceLifecycleRequest.ProtoReflect.Descriptor instead.
 func (*QueryServiceLifecycleRequest) Descriptor() ([]byte, []int) {
-	return file_hub_v1_query_registry_proto_rawDescGZIP(), []int{37}
+	return file_hub_v1_query_registry_proto_rawDescGZIP(), []int{39}
 }
 
 func (x *QueryServiceLifecycleRequest) GetOperatorAddress() string {
@@ -1953,7 +2113,7 @@ type QueryServiceLifecycleResponse struct {
 
 func (x *QueryServiceLifecycleResponse) Reset() {
 	*x = QueryServiceLifecycleResponse{}
-	mi := &file_hub_v1_query_registry_proto_msgTypes[38]
+	mi := &file_hub_v1_query_registry_proto_msgTypes[40]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1965,7 +2125,7 @@ func (x *QueryServiceLifecycleResponse) String() string {
 func (*QueryServiceLifecycleResponse) ProtoMessage() {}
 
 func (x *QueryServiceLifecycleResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_hub_v1_query_registry_proto_msgTypes[38]
+	mi := &file_hub_v1_query_registry_proto_msgTypes[40]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1978,7 +2138,7 @@ func (x *QueryServiceLifecycleResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QueryServiceLifecycleResponse.ProtoReflect.Descriptor instead.
 func (*QueryServiceLifecycleResponse) Descriptor() ([]byte, []int) {
-	return file_hub_v1_query_registry_proto_rawDescGZIP(), []int{38}
+	return file_hub_v1_query_registry_proto_rawDescGZIP(), []int{40}
 }
 
 func (x *QueryServiceLifecycleResponse) GetLifecycle() *ServiceLifecycleViewV1 {
@@ -2001,7 +2161,7 @@ type QueryCurrentCandidatePoolRequest struct {
 
 func (x *QueryCurrentCandidatePoolRequest) Reset() {
 	*x = QueryCurrentCandidatePoolRequest{}
-	mi := &file_hub_v1_query_registry_proto_msgTypes[39]
+	mi := &file_hub_v1_query_registry_proto_msgTypes[41]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2013,7 +2173,7 @@ func (x *QueryCurrentCandidatePoolRequest) String() string {
 func (*QueryCurrentCandidatePoolRequest) ProtoMessage() {}
 
 func (x *QueryCurrentCandidatePoolRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_hub_v1_query_registry_proto_msgTypes[39]
+	mi := &file_hub_v1_query_registry_proto_msgTypes[41]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2026,7 +2186,7 @@ func (x *QueryCurrentCandidatePoolRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QueryCurrentCandidatePoolRequest.ProtoReflect.Descriptor instead.
 func (*QueryCurrentCandidatePoolRequest) Descriptor() ([]byte, []int) {
-	return file_hub_v1_query_registry_proto_rawDescGZIP(), []int{39}
+	return file_hub_v1_query_registry_proto_rawDescGZIP(), []int{41}
 }
 
 // QueryCurrentCandidatePoolResponse returns the one ACTIVE snapshot the current
@@ -2042,7 +2202,7 @@ type QueryCurrentCandidatePoolResponse struct {
 
 func (x *QueryCurrentCandidatePoolResponse) Reset() {
 	*x = QueryCurrentCandidatePoolResponse{}
-	mi := &file_hub_v1_query_registry_proto_msgTypes[40]
+	mi := &file_hub_v1_query_registry_proto_msgTypes[42]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2054,7 +2214,7 @@ func (x *QueryCurrentCandidatePoolResponse) String() string {
 func (*QueryCurrentCandidatePoolResponse) ProtoMessage() {}
 
 func (x *QueryCurrentCandidatePoolResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_hub_v1_query_registry_proto_msgTypes[40]
+	mi := &file_hub_v1_query_registry_proto_msgTypes[42]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2067,7 +2227,7 @@ func (x *QueryCurrentCandidatePoolResponse) ProtoReflect() protoreflect.Message 
 
 // Deprecated: Use QueryCurrentCandidatePoolResponse.ProtoReflect.Descriptor instead.
 func (*QueryCurrentCandidatePoolResponse) Descriptor() ([]byte, []int) {
-	return file_hub_v1_query_registry_proto_rawDescGZIP(), []int{40}
+	return file_hub_v1_query_registry_proto_rawDescGZIP(), []int{42}
 }
 
 func (x *QueryCurrentCandidatePoolResponse) GetSnapshot() *CandidatePoolSnapshotViewV1 {
@@ -2088,7 +2248,7 @@ type QueryCandidatePoolSnapshotRequest struct {
 
 func (x *QueryCandidatePoolSnapshotRequest) Reset() {
 	*x = QueryCandidatePoolSnapshotRequest{}
-	mi := &file_hub_v1_query_registry_proto_msgTypes[41]
+	mi := &file_hub_v1_query_registry_proto_msgTypes[43]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2100,7 +2260,7 @@ func (x *QueryCandidatePoolSnapshotRequest) String() string {
 func (*QueryCandidatePoolSnapshotRequest) ProtoMessage() {}
 
 func (x *QueryCandidatePoolSnapshotRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_hub_v1_query_registry_proto_msgTypes[41]
+	mi := &file_hub_v1_query_registry_proto_msgTypes[43]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2113,7 +2273,7 @@ func (x *QueryCandidatePoolSnapshotRequest) ProtoReflect() protoreflect.Message 
 
 // Deprecated: Use QueryCandidatePoolSnapshotRequest.ProtoReflect.Descriptor instead.
 func (*QueryCandidatePoolSnapshotRequest) Descriptor() ([]byte, []int) {
-	return file_hub_v1_query_registry_proto_rawDescGZIP(), []int{41}
+	return file_hub_v1_query_registry_proto_rawDescGZIP(), []int{43}
 }
 
 func (x *QueryCandidatePoolSnapshotRequest) GetSnapshotId() []byte {
@@ -2136,7 +2296,7 @@ type QueryCandidatePoolSnapshotResponse struct {
 
 func (x *QueryCandidatePoolSnapshotResponse) Reset() {
 	*x = QueryCandidatePoolSnapshotResponse{}
-	mi := &file_hub_v1_query_registry_proto_msgTypes[42]
+	mi := &file_hub_v1_query_registry_proto_msgTypes[44]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2148,7 +2308,7 @@ func (x *QueryCandidatePoolSnapshotResponse) String() string {
 func (*QueryCandidatePoolSnapshotResponse) ProtoMessage() {}
 
 func (x *QueryCandidatePoolSnapshotResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_hub_v1_query_registry_proto_msgTypes[42]
+	mi := &file_hub_v1_query_registry_proto_msgTypes[44]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2161,7 +2321,7 @@ func (x *QueryCandidatePoolSnapshotResponse) ProtoReflect() protoreflect.Message
 
 // Deprecated: Use QueryCandidatePoolSnapshotResponse.ProtoReflect.Descriptor instead.
 func (*QueryCandidatePoolSnapshotResponse) Descriptor() ([]byte, []int) {
-	return file_hub_v1_query_registry_proto_rawDescGZIP(), []int{42}
+	return file_hub_v1_query_registry_proto_rawDescGZIP(), []int{44}
 }
 
 func (x *QueryCandidatePoolSnapshotResponse) GetSnapshot() *CandidatePoolSnapshotViewV1 {
@@ -2183,7 +2343,7 @@ type QueryCandidatePoolMemberRequest struct {
 
 func (x *QueryCandidatePoolMemberRequest) Reset() {
 	*x = QueryCandidatePoolMemberRequest{}
-	mi := &file_hub_v1_query_registry_proto_msgTypes[43]
+	mi := &file_hub_v1_query_registry_proto_msgTypes[45]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2195,7 +2355,7 @@ func (x *QueryCandidatePoolMemberRequest) String() string {
 func (*QueryCandidatePoolMemberRequest) ProtoMessage() {}
 
 func (x *QueryCandidatePoolMemberRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_hub_v1_query_registry_proto_msgTypes[43]
+	mi := &file_hub_v1_query_registry_proto_msgTypes[45]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2208,7 +2368,7 @@ func (x *QueryCandidatePoolMemberRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QueryCandidatePoolMemberRequest.ProtoReflect.Descriptor instead.
 func (*QueryCandidatePoolMemberRequest) Descriptor() ([]byte, []int) {
-	return file_hub_v1_query_registry_proto_rawDescGZIP(), []int{43}
+	return file_hub_v1_query_registry_proto_rawDescGZIP(), []int{45}
 }
 
 func (x *QueryCandidatePoolMemberRequest) GetSnapshotId() []byte {
@@ -2241,7 +2401,7 @@ type QueryCandidatePoolMemberResponse struct {
 
 func (x *QueryCandidatePoolMemberResponse) Reset() {
 	*x = QueryCandidatePoolMemberResponse{}
-	mi := &file_hub_v1_query_registry_proto_msgTypes[44]
+	mi := &file_hub_v1_query_registry_proto_msgTypes[46]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2253,7 +2413,7 @@ func (x *QueryCandidatePoolMemberResponse) String() string {
 func (*QueryCandidatePoolMemberResponse) ProtoMessage() {}
 
 func (x *QueryCandidatePoolMemberResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_hub_v1_query_registry_proto_msgTypes[44]
+	mi := &file_hub_v1_query_registry_proto_msgTypes[46]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2266,7 +2426,7 @@ func (x *QueryCandidatePoolMemberResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QueryCandidatePoolMemberResponse.ProtoReflect.Descriptor instead.
 func (*QueryCandidatePoolMemberResponse) Descriptor() ([]byte, []int) {
-	return file_hub_v1_query_registry_proto_rawDescGZIP(), []int{44}
+	return file_hub_v1_query_registry_proto_rawDescGZIP(), []int{46}
 }
 
 func (x *QueryCandidatePoolMemberResponse) GetMember() *CandidatePoolMemberViewV1 {
@@ -2287,7 +2447,7 @@ type QueryCandidatePoolMembersRequest struct {
 
 func (x *QueryCandidatePoolMembersRequest) Reset() {
 	*x = QueryCandidatePoolMembersRequest{}
-	mi := &file_hub_v1_query_registry_proto_msgTypes[45]
+	mi := &file_hub_v1_query_registry_proto_msgTypes[47]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2299,7 +2459,7 @@ func (x *QueryCandidatePoolMembersRequest) String() string {
 func (*QueryCandidatePoolMembersRequest) ProtoMessage() {}
 
 func (x *QueryCandidatePoolMembersRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_hub_v1_query_registry_proto_msgTypes[45]
+	mi := &file_hub_v1_query_registry_proto_msgTypes[47]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2312,7 +2472,7 @@ func (x *QueryCandidatePoolMembersRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QueryCandidatePoolMembersRequest.ProtoReflect.Descriptor instead.
 func (*QueryCandidatePoolMembersRequest) Descriptor() ([]byte, []int) {
-	return file_hub_v1_query_registry_proto_rawDescGZIP(), []int{45}
+	return file_hub_v1_query_registry_proto_rawDescGZIP(), []int{47}
 }
 
 func (x *QueryCandidatePoolMembersRequest) GetSnapshotId() []byte {
@@ -2343,7 +2503,7 @@ type QueryCandidatePoolMembersResponse struct {
 
 func (x *QueryCandidatePoolMembersResponse) Reset() {
 	*x = QueryCandidatePoolMembersResponse{}
-	mi := &file_hub_v1_query_registry_proto_msgTypes[46]
+	mi := &file_hub_v1_query_registry_proto_msgTypes[48]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2355,7 +2515,7 @@ func (x *QueryCandidatePoolMembersResponse) String() string {
 func (*QueryCandidatePoolMembersResponse) ProtoMessage() {}
 
 func (x *QueryCandidatePoolMembersResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_hub_v1_query_registry_proto_msgTypes[46]
+	mi := &file_hub_v1_query_registry_proto_msgTypes[48]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2368,7 +2528,7 @@ func (x *QueryCandidatePoolMembersResponse) ProtoReflect() protoreflect.Message 
 
 // Deprecated: Use QueryCandidatePoolMembersResponse.ProtoReflect.Descriptor instead.
 func (*QueryCandidatePoolMembersResponse) Descriptor() ([]byte, []int) {
-	return file_hub_v1_query_registry_proto_rawDescGZIP(), []int{46}
+	return file_hub_v1_query_registry_proto_rawDescGZIP(), []int{48}
 }
 
 func (x *QueryCandidatePoolMembersResponse) GetMembers() []*CandidatePoolMemberViewV1 {
@@ -2417,7 +2577,7 @@ type CurrentServiceKeyViewV1 struct {
 
 func (x *CurrentServiceKeyViewV1) Reset() {
 	*x = CurrentServiceKeyViewV1{}
-	mi := &file_hub_v1_query_registry_proto_msgTypes[47]
+	mi := &file_hub_v1_query_registry_proto_msgTypes[49]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2429,7 +2589,7 @@ func (x *CurrentServiceKeyViewV1) String() string {
 func (*CurrentServiceKeyViewV1) ProtoMessage() {}
 
 func (x *CurrentServiceKeyViewV1) ProtoReflect() protoreflect.Message {
-	mi := &file_hub_v1_query_registry_proto_msgTypes[47]
+	mi := &file_hub_v1_query_registry_proto_msgTypes[49]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2442,7 +2602,7 @@ func (x *CurrentServiceKeyViewV1) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CurrentServiceKeyViewV1.ProtoReflect.Descriptor instead.
 func (*CurrentServiceKeyViewV1) Descriptor() ([]byte, []int) {
-	return file_hub_v1_query_registry_proto_rawDescGZIP(), []int{47}
+	return file_hub_v1_query_registry_proto_rawDescGZIP(), []int{49}
 }
 
 func (x *CurrentServiceKeyViewV1) GetParticipantType() v1.ParticipantType {
@@ -2576,7 +2736,7 @@ type ServiceLifecycleViewV1 struct {
 
 func (x *ServiceLifecycleViewV1) Reset() {
 	*x = ServiceLifecycleViewV1{}
-	mi := &file_hub_v1_query_registry_proto_msgTypes[48]
+	mi := &file_hub_v1_query_registry_proto_msgTypes[50]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2588,7 +2748,7 @@ func (x *ServiceLifecycleViewV1) String() string {
 func (*ServiceLifecycleViewV1) ProtoMessage() {}
 
 func (x *ServiceLifecycleViewV1) ProtoReflect() protoreflect.Message {
-	mi := &file_hub_v1_query_registry_proto_msgTypes[48]
+	mi := &file_hub_v1_query_registry_proto_msgTypes[50]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2601,7 +2761,7 @@ func (x *ServiceLifecycleViewV1) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ServiceLifecycleViewV1.ProtoReflect.Descriptor instead.
 func (*ServiceLifecycleViewV1) Descriptor() ([]byte, []int) {
-	return file_hub_v1_query_registry_proto_rawDescGZIP(), []int{48}
+	return file_hub_v1_query_registry_proto_rawDescGZIP(), []int{50}
 }
 
 func (x *ServiceLifecycleViewV1) GetNode() *CortexNodeState {
@@ -2688,7 +2848,19 @@ const file_hub_v1_query_registry_proto_rawDesc = "" +
 	"\x17QueryServiceBondRequest\x12)\n" +
 	"\x10operator_address\x18\x01 \x01(\tR\x0foperatorAddress\"H\n" +
 	"\x18QueryServiceBondResponse\x12,\n" +
-	"\x04bond\x18\x01 \x01(\v2\x18.hub.v1.ServiceBondStateR\x04bond\"\xae\x01\n" +
+	"\x04bond\x18\x01 \x01(\v2\x18.hub.v1.ServiceBondStateR\x04bond\"\\\n" +
+	"\x17QueryWorkerQuotaRequest\x12)\n" +
+	"\x10operator_address\x18\x01 \x01(\tR\x0foperatorAddress\x12\x16\n" +
+	"\x06period\x18\x02 \x01(\x04R\x06period\"\x9c\x02\n" +
+	"\x18QueryWorkerQuotaResponse\x12\x16\n" +
+	"\x06period\x18\x01 \x01(\x04R\x06period\x12\x14\n" +
+	"\x05quota\x18\x02 \x01(\x04R\x05quota\x12%\n" +
+	"\x0ereserved_value\x18\x03 \x01(\x04R\rreservedValue\x12#\n" +
+	"\rsettled_value\x18\x04 \x01(\x04R\fsettledValue\x12\x1c\n" +
+	"\tremaining\x18\x05 \x01(\x04R\tremaining\x12\x1a\n" +
+	"\benforced\x18\x06 \x01(\bR\benforced\x12'\n" +
+	"\x0fdispatch_paused\x18\a \x01(\bR\x0edispatchPaused\x12#\n" +
+	"\rpause_reasons\x18\b \x01(\rR\fpauseReasons\"\xae\x01\n" +
 	"\x1dQueryServiceUnbondingsRequest\x12)\n" +
 	"\x10operator_address\x18\x01 \x01(\tR\x0foperatorAddress\x12/\n" +
 	"\x06status\x18\x02 \x01(\x0e2\x17.hub.v1.UnbondingStatusR\x06status\x121\n" +
@@ -2788,7 +2960,7 @@ func file_hub_v1_query_registry_proto_rawDescGZIP() []byte {
 	return file_hub_v1_query_registry_proto_rawDescData
 }
 
-var file_hub_v1_query_registry_proto_msgTypes = make([]protoimpl.MessageInfo, 49)
+var file_hub_v1_query_registry_proto_msgTypes = make([]protoimpl.MessageInfo, 51)
 var file_hub_v1_query_registry_proto_goTypes = []any{
 	(*QueryHubParamsRequest)(nil),              // 0: hub.v1.QueryHubParamsRequest
 	(*QueryHubParamsResponse)(nil),             // 1: hub.v1.QueryHubParamsResponse
@@ -2815,100 +2987,102 @@ var file_hub_v1_query_registry_proto_goTypes = []any{
 	(*QueryCortexNodeResponse)(nil),            // 22: hub.v1.QueryCortexNodeResponse
 	(*QueryServiceBondRequest)(nil),            // 23: hub.v1.QueryServiceBondRequest
 	(*QueryServiceBondResponse)(nil),           // 24: hub.v1.QueryServiceBondResponse
-	(*QueryServiceUnbondingsRequest)(nil),      // 25: hub.v1.QueryServiceUnbondingsRequest
-	(*QueryServiceUnbondingsResponse)(nil),     // 26: hub.v1.QueryServiceUnbondingsResponse
-	(*QueryCurrentServiceKeyRequest)(nil),      // 27: hub.v1.QueryCurrentServiceKeyRequest
-	(*QueryCurrentServiceKeyResponse)(nil),     // 28: hub.v1.QueryCurrentServiceKeyResponse
-	(*QueryServiceDescriptorRequest)(nil),      // 29: hub.v1.QueryServiceDescriptorRequest
-	(*QueryServiceDescriptorResponse)(nil),     // 30: hub.v1.QueryServiceDescriptorResponse
-	(*QueryModelCapabilityRequest)(nil),        // 31: hub.v1.QueryModelCapabilityRequest
-	(*QueryModelCapabilityResponse)(nil),       // 32: hub.v1.QueryModelCapabilityResponse
-	(*QueryModelSupportRequest)(nil),           // 33: hub.v1.QueryModelSupportRequest
-	(*QueryModelSupportResponse)(nil),          // 34: hub.v1.QueryModelSupportResponse
-	(*QueryDailySupportRequest)(nil),           // 35: hub.v1.QueryDailySupportRequest
-	(*QueryDailySupportResponse)(nil),          // 36: hub.v1.QueryDailySupportResponse
-	(*QueryServiceLifecycleRequest)(nil),       // 37: hub.v1.QueryServiceLifecycleRequest
-	(*QueryServiceLifecycleResponse)(nil),      // 38: hub.v1.QueryServiceLifecycleResponse
-	(*QueryCurrentCandidatePoolRequest)(nil),   // 39: hub.v1.QueryCurrentCandidatePoolRequest
-	(*QueryCurrentCandidatePoolResponse)(nil),  // 40: hub.v1.QueryCurrentCandidatePoolResponse
-	(*QueryCandidatePoolSnapshotRequest)(nil),  // 41: hub.v1.QueryCandidatePoolSnapshotRequest
-	(*QueryCandidatePoolSnapshotResponse)(nil), // 42: hub.v1.QueryCandidatePoolSnapshotResponse
-	(*QueryCandidatePoolMemberRequest)(nil),    // 43: hub.v1.QueryCandidatePoolMemberRequest
-	(*QueryCandidatePoolMemberResponse)(nil),   // 44: hub.v1.QueryCandidatePoolMemberResponse
-	(*QueryCandidatePoolMembersRequest)(nil),   // 45: hub.v1.QueryCandidatePoolMembersRequest
-	(*QueryCandidatePoolMembersResponse)(nil),  // 46: hub.v1.QueryCandidatePoolMembersResponse
-	(*CurrentServiceKeyViewV1)(nil),            // 47: hub.v1.CurrentServiceKeyViewV1
-	(*ServiceLifecycleViewV1)(nil),             // 48: hub.v1.ServiceLifecycleViewV1
-	(*HubParamsV2)(nil),                        // 49: hub.v1.HubParamsV2
-	(*HubParamsMetaState)(nil),                 // 50: hub.v1.HubParamsMetaState
-	(*BeaconState)(nil),                        // 51: hub.v1.BeaconState
-	(v1.StoredBodyStatus)(0),                   // 52: shared.v1.StoredBodyStatus
-	(*BuilderState)(nil),                       // 53: hub.v1.BuilderState
-	(*v1.QueryPageRequestV1)(nil),              // 54: shared.v1.QueryPageRequestV1
-	(*v1.QueryPageResponseV1)(nil),             // 55: shared.v1.QueryPageResponseV1
-	(*RoleFaultState)(nil),                     // 56: hub.v1.RoleFaultState
-	(*SlashSummaryState)(nil),                  // 57: hub.v1.SlashSummaryState
-	(*EarningsState)(nil),                      // 58: hub.v1.EarningsState
-	(*ModelState)(nil),                         // 59: hub.v1.ModelState
-	(*ProfileState)(nil),                       // 60: hub.v1.ProfileState
-	(*CortexNodeState)(nil),                    // 61: hub.v1.CortexNodeState
-	(*ServiceBondState)(nil),                   // 62: hub.v1.ServiceBondState
-	(UnbondingStatus)(0),                       // 63: hub.v1.UnbondingStatus
-	(*UnbondingState)(nil),                     // 64: hub.v1.UnbondingState
-	(v1.ParticipantType)(0),                    // 65: shared.v1.ParticipantType
-	(*ServiceDescriptorState)(nil),             // 66: hub.v1.ServiceDescriptorState
-	(*ModelCapabilityState)(nil),               // 67: hub.v1.ModelCapabilityState
-	(*ModelSupportState)(nil),                  // 68: hub.v1.ModelSupportState
-	(*DailySupportState)(nil),                  // 69: hub.v1.DailySupportState
-	(*CandidatePoolSnapshotViewV1)(nil),        // 70: hub.v1.CandidatePoolSnapshotViewV1
-	(*CandidatePoolMemberViewV1)(nil),          // 71: hub.v1.CandidatePoolMemberViewV1
-	(ServiceKeyStatus)(0),                      // 72: hub.v1.ServiceKeyStatus
-	(*PendingServiceKeyRotationState)(nil),     // 73: hub.v1.PendingServiceKeyRotationState
+	(*QueryWorkerQuotaRequest)(nil),            // 25: hub.v1.QueryWorkerQuotaRequest
+	(*QueryWorkerQuotaResponse)(nil),           // 26: hub.v1.QueryWorkerQuotaResponse
+	(*QueryServiceUnbondingsRequest)(nil),      // 27: hub.v1.QueryServiceUnbondingsRequest
+	(*QueryServiceUnbondingsResponse)(nil),     // 28: hub.v1.QueryServiceUnbondingsResponse
+	(*QueryCurrentServiceKeyRequest)(nil),      // 29: hub.v1.QueryCurrentServiceKeyRequest
+	(*QueryCurrentServiceKeyResponse)(nil),     // 30: hub.v1.QueryCurrentServiceKeyResponse
+	(*QueryServiceDescriptorRequest)(nil),      // 31: hub.v1.QueryServiceDescriptorRequest
+	(*QueryServiceDescriptorResponse)(nil),     // 32: hub.v1.QueryServiceDescriptorResponse
+	(*QueryModelCapabilityRequest)(nil),        // 33: hub.v1.QueryModelCapabilityRequest
+	(*QueryModelCapabilityResponse)(nil),       // 34: hub.v1.QueryModelCapabilityResponse
+	(*QueryModelSupportRequest)(nil),           // 35: hub.v1.QueryModelSupportRequest
+	(*QueryModelSupportResponse)(nil),          // 36: hub.v1.QueryModelSupportResponse
+	(*QueryDailySupportRequest)(nil),           // 37: hub.v1.QueryDailySupportRequest
+	(*QueryDailySupportResponse)(nil),          // 38: hub.v1.QueryDailySupportResponse
+	(*QueryServiceLifecycleRequest)(nil),       // 39: hub.v1.QueryServiceLifecycleRequest
+	(*QueryServiceLifecycleResponse)(nil),      // 40: hub.v1.QueryServiceLifecycleResponse
+	(*QueryCurrentCandidatePoolRequest)(nil),   // 41: hub.v1.QueryCurrentCandidatePoolRequest
+	(*QueryCurrentCandidatePoolResponse)(nil),  // 42: hub.v1.QueryCurrentCandidatePoolResponse
+	(*QueryCandidatePoolSnapshotRequest)(nil),  // 43: hub.v1.QueryCandidatePoolSnapshotRequest
+	(*QueryCandidatePoolSnapshotResponse)(nil), // 44: hub.v1.QueryCandidatePoolSnapshotResponse
+	(*QueryCandidatePoolMemberRequest)(nil),    // 45: hub.v1.QueryCandidatePoolMemberRequest
+	(*QueryCandidatePoolMemberResponse)(nil),   // 46: hub.v1.QueryCandidatePoolMemberResponse
+	(*QueryCandidatePoolMembersRequest)(nil),   // 47: hub.v1.QueryCandidatePoolMembersRequest
+	(*QueryCandidatePoolMembersResponse)(nil),  // 48: hub.v1.QueryCandidatePoolMembersResponse
+	(*CurrentServiceKeyViewV1)(nil),            // 49: hub.v1.CurrentServiceKeyViewV1
+	(*ServiceLifecycleViewV1)(nil),             // 50: hub.v1.ServiceLifecycleViewV1
+	(*HubParamsV2)(nil),                        // 51: hub.v1.HubParamsV2
+	(*HubParamsMetaState)(nil),                 // 52: hub.v1.HubParamsMetaState
+	(*BeaconState)(nil),                        // 53: hub.v1.BeaconState
+	(v1.StoredBodyStatus)(0),                   // 54: shared.v1.StoredBodyStatus
+	(*BuilderState)(nil),                       // 55: hub.v1.BuilderState
+	(*v1.QueryPageRequestV1)(nil),              // 56: shared.v1.QueryPageRequestV1
+	(*v1.QueryPageResponseV1)(nil),             // 57: shared.v1.QueryPageResponseV1
+	(*RoleFaultState)(nil),                     // 58: hub.v1.RoleFaultState
+	(*SlashSummaryState)(nil),                  // 59: hub.v1.SlashSummaryState
+	(*EarningsState)(nil),                      // 60: hub.v1.EarningsState
+	(*ModelState)(nil),                         // 61: hub.v1.ModelState
+	(*ProfileState)(nil),                       // 62: hub.v1.ProfileState
+	(*CortexNodeState)(nil),                    // 63: hub.v1.CortexNodeState
+	(*ServiceBondState)(nil),                   // 64: hub.v1.ServiceBondState
+	(UnbondingStatus)(0),                       // 65: hub.v1.UnbondingStatus
+	(*UnbondingState)(nil),                     // 66: hub.v1.UnbondingState
+	(v1.ParticipantType)(0),                    // 67: shared.v1.ParticipantType
+	(*ServiceDescriptorState)(nil),             // 68: hub.v1.ServiceDescriptorState
+	(*ModelCapabilityState)(nil),               // 69: hub.v1.ModelCapabilityState
+	(*ModelSupportState)(nil),                  // 70: hub.v1.ModelSupportState
+	(*DailySupportState)(nil),                  // 71: hub.v1.DailySupportState
+	(*CandidatePoolSnapshotViewV1)(nil),        // 72: hub.v1.CandidatePoolSnapshotViewV1
+	(*CandidatePoolMemberViewV1)(nil),          // 73: hub.v1.CandidatePoolMemberViewV1
+	(ServiceKeyStatus)(0),                      // 74: hub.v1.ServiceKeyStatus
+	(*PendingServiceKeyRotationState)(nil),     // 75: hub.v1.PendingServiceKeyRotationState
 }
 var file_hub_v1_query_registry_proto_depIdxs = []int32{
-	49, // 0: hub.v1.QueryHubParamsResponse.params:type_name -> hub.v1.HubParamsV2
-	50, // 1: hub.v1.QueryHubParamsResponse.meta:type_name -> hub.v1.HubParamsMetaState
-	51, // 2: hub.v1.QueryBeaconResponse.beacon:type_name -> hub.v1.BeaconState
+	51, // 0: hub.v1.QueryHubParamsResponse.params:type_name -> hub.v1.HubParamsV2
+	52, // 1: hub.v1.QueryHubParamsResponse.meta:type_name -> hub.v1.HubParamsMetaState
+	53, // 2: hub.v1.QueryBeaconResponse.beacon:type_name -> hub.v1.BeaconState
 	6,  // 3: hub.v1.QueryBuilderSetResponse.set:type_name -> hub.v1.BuilderSetViewV1
-	52, // 4: hub.v1.BuilderSetViewV1.body_status:type_name -> shared.v1.StoredBodyStatus
-	53, // 5: hub.v1.QueryBuilderResponse.builder:type_name -> hub.v1.BuilderState
-	54, // 6: hub.v1.QueryBuildersRequest.page:type_name -> shared.v1.QueryPageRequestV1
-	53, // 7: hub.v1.QueryBuildersResponse.builders:type_name -> hub.v1.BuilderState
-	55, // 8: hub.v1.QueryBuildersResponse.page:type_name -> shared.v1.QueryPageResponseV1
-	56, // 9: hub.v1.QueryFaultResponse.fault:type_name -> hub.v1.RoleFaultState
-	57, // 10: hub.v1.QueryFaultResponse.slash_summary:type_name -> hub.v1.SlashSummaryState
-	58, // 11: hub.v1.QueryEarningsResponse.earnings:type_name -> hub.v1.EarningsState
-	59, // 12: hub.v1.QueryModelResponse.model:type_name -> hub.v1.ModelState
-	54, // 13: hub.v1.QueryModelsRequest.page:type_name -> shared.v1.QueryPageRequestV1
-	59, // 14: hub.v1.QueryModelsResponse.models:type_name -> hub.v1.ModelState
-	55, // 15: hub.v1.QueryModelsResponse.page:type_name -> shared.v1.QueryPageResponseV1
-	60, // 16: hub.v1.QueryProfileResponse.profile:type_name -> hub.v1.ProfileState
-	61, // 17: hub.v1.QueryCortexNodeResponse.node:type_name -> hub.v1.CortexNodeState
-	62, // 18: hub.v1.QueryServiceBondResponse.bond:type_name -> hub.v1.ServiceBondState
-	63, // 19: hub.v1.QueryServiceUnbondingsRequest.status:type_name -> hub.v1.UnbondingStatus
-	54, // 20: hub.v1.QueryServiceUnbondingsRequest.page:type_name -> shared.v1.QueryPageRequestV1
-	64, // 21: hub.v1.QueryServiceUnbondingsResponse.entries:type_name -> hub.v1.UnbondingState
-	55, // 22: hub.v1.QueryServiceUnbondingsResponse.page:type_name -> shared.v1.QueryPageResponseV1
-	65, // 23: hub.v1.QueryCurrentServiceKeyRequest.participant_type:type_name -> shared.v1.ParticipantType
-	47, // 24: hub.v1.QueryCurrentServiceKeyResponse.binding:type_name -> hub.v1.CurrentServiceKeyViewV1
-	65, // 25: hub.v1.QueryServiceDescriptorRequest.participant_type:type_name -> shared.v1.ParticipantType
-	66, // 26: hub.v1.QueryServiceDescriptorResponse.descriptor:type_name -> hub.v1.ServiceDescriptorState
-	67, // 27: hub.v1.QueryModelCapabilityResponse.capability:type_name -> hub.v1.ModelCapabilityState
-	68, // 28: hub.v1.QueryModelSupportResponse.support:type_name -> hub.v1.ModelSupportState
-	69, // 29: hub.v1.QueryDailySupportResponse.support:type_name -> hub.v1.DailySupportState
-	48, // 30: hub.v1.QueryServiceLifecycleResponse.lifecycle:type_name -> hub.v1.ServiceLifecycleViewV1
-	70, // 31: hub.v1.QueryCurrentCandidatePoolResponse.snapshot:type_name -> hub.v1.CandidatePoolSnapshotViewV1
-	70, // 32: hub.v1.QueryCandidatePoolSnapshotResponse.snapshot:type_name -> hub.v1.CandidatePoolSnapshotViewV1
-	71, // 33: hub.v1.QueryCandidatePoolMemberResponse.member:type_name -> hub.v1.CandidatePoolMemberViewV1
-	54, // 34: hub.v1.QueryCandidatePoolMembersRequest.page:type_name -> shared.v1.QueryPageRequestV1
-	71, // 35: hub.v1.QueryCandidatePoolMembersResponse.members:type_name -> hub.v1.CandidatePoolMemberViewV1
-	55, // 36: hub.v1.QueryCandidatePoolMembersResponse.page:type_name -> shared.v1.QueryPageResponseV1
-	65, // 37: hub.v1.CurrentServiceKeyViewV1.participant_type:type_name -> shared.v1.ParticipantType
-	72, // 38: hub.v1.CurrentServiceKeyViewV1.cortex_service_key_status:type_name -> hub.v1.ServiceKeyStatus
-	72, // 39: hub.v1.CurrentServiceKeyViewV1.builder_service_key_status:type_name -> hub.v1.ServiceKeyStatus
-	73, // 40: hub.v1.CurrentServiceKeyViewV1.pending_rotation:type_name -> hub.v1.PendingServiceKeyRotationState
-	61, // 41: hub.v1.ServiceLifecycleViewV1.node:type_name -> hub.v1.CortexNodeState
-	62, // 42: hub.v1.ServiceLifecycleViewV1.bond:type_name -> hub.v1.ServiceBondState
+	54, // 4: hub.v1.BuilderSetViewV1.body_status:type_name -> shared.v1.StoredBodyStatus
+	55, // 5: hub.v1.QueryBuilderResponse.builder:type_name -> hub.v1.BuilderState
+	56, // 6: hub.v1.QueryBuildersRequest.page:type_name -> shared.v1.QueryPageRequestV1
+	55, // 7: hub.v1.QueryBuildersResponse.builders:type_name -> hub.v1.BuilderState
+	57, // 8: hub.v1.QueryBuildersResponse.page:type_name -> shared.v1.QueryPageResponseV1
+	58, // 9: hub.v1.QueryFaultResponse.fault:type_name -> hub.v1.RoleFaultState
+	59, // 10: hub.v1.QueryFaultResponse.slash_summary:type_name -> hub.v1.SlashSummaryState
+	60, // 11: hub.v1.QueryEarningsResponse.earnings:type_name -> hub.v1.EarningsState
+	61, // 12: hub.v1.QueryModelResponse.model:type_name -> hub.v1.ModelState
+	56, // 13: hub.v1.QueryModelsRequest.page:type_name -> shared.v1.QueryPageRequestV1
+	61, // 14: hub.v1.QueryModelsResponse.models:type_name -> hub.v1.ModelState
+	57, // 15: hub.v1.QueryModelsResponse.page:type_name -> shared.v1.QueryPageResponseV1
+	62, // 16: hub.v1.QueryProfileResponse.profile:type_name -> hub.v1.ProfileState
+	63, // 17: hub.v1.QueryCortexNodeResponse.node:type_name -> hub.v1.CortexNodeState
+	64, // 18: hub.v1.QueryServiceBondResponse.bond:type_name -> hub.v1.ServiceBondState
+	65, // 19: hub.v1.QueryServiceUnbondingsRequest.status:type_name -> hub.v1.UnbondingStatus
+	56, // 20: hub.v1.QueryServiceUnbondingsRequest.page:type_name -> shared.v1.QueryPageRequestV1
+	66, // 21: hub.v1.QueryServiceUnbondingsResponse.entries:type_name -> hub.v1.UnbondingState
+	57, // 22: hub.v1.QueryServiceUnbondingsResponse.page:type_name -> shared.v1.QueryPageResponseV1
+	67, // 23: hub.v1.QueryCurrentServiceKeyRequest.participant_type:type_name -> shared.v1.ParticipantType
+	49, // 24: hub.v1.QueryCurrentServiceKeyResponse.binding:type_name -> hub.v1.CurrentServiceKeyViewV1
+	67, // 25: hub.v1.QueryServiceDescriptorRequest.participant_type:type_name -> shared.v1.ParticipantType
+	68, // 26: hub.v1.QueryServiceDescriptorResponse.descriptor:type_name -> hub.v1.ServiceDescriptorState
+	69, // 27: hub.v1.QueryModelCapabilityResponse.capability:type_name -> hub.v1.ModelCapabilityState
+	70, // 28: hub.v1.QueryModelSupportResponse.support:type_name -> hub.v1.ModelSupportState
+	71, // 29: hub.v1.QueryDailySupportResponse.support:type_name -> hub.v1.DailySupportState
+	50, // 30: hub.v1.QueryServiceLifecycleResponse.lifecycle:type_name -> hub.v1.ServiceLifecycleViewV1
+	72, // 31: hub.v1.QueryCurrentCandidatePoolResponse.snapshot:type_name -> hub.v1.CandidatePoolSnapshotViewV1
+	72, // 32: hub.v1.QueryCandidatePoolSnapshotResponse.snapshot:type_name -> hub.v1.CandidatePoolSnapshotViewV1
+	73, // 33: hub.v1.QueryCandidatePoolMemberResponse.member:type_name -> hub.v1.CandidatePoolMemberViewV1
+	56, // 34: hub.v1.QueryCandidatePoolMembersRequest.page:type_name -> shared.v1.QueryPageRequestV1
+	73, // 35: hub.v1.QueryCandidatePoolMembersResponse.members:type_name -> hub.v1.CandidatePoolMemberViewV1
+	57, // 36: hub.v1.QueryCandidatePoolMembersResponse.page:type_name -> shared.v1.QueryPageResponseV1
+	67, // 37: hub.v1.CurrentServiceKeyViewV1.participant_type:type_name -> shared.v1.ParticipantType
+	74, // 38: hub.v1.CurrentServiceKeyViewV1.cortex_service_key_status:type_name -> hub.v1.ServiceKeyStatus
+	74, // 39: hub.v1.CurrentServiceKeyViewV1.builder_service_key_status:type_name -> hub.v1.ServiceKeyStatus
+	75, // 40: hub.v1.CurrentServiceKeyViewV1.pending_rotation:type_name -> hub.v1.PendingServiceKeyRotationState
+	63, // 41: hub.v1.ServiceLifecycleViewV1.node:type_name -> hub.v1.CortexNodeState
+	64, // 42: hub.v1.ServiceLifecycleViewV1.bond:type_name -> hub.v1.ServiceBondState
 	43, // [43:43] is the sub-list for method output_type
 	43, // [43:43] is the sub-list for method input_type
 	43, // [43:43] is the sub-list for extension type_name
@@ -2937,18 +3111,18 @@ func file_hub_v1_query_registry_proto_init() {
 		(*QueryBuilderSetRequest_BuilderSetId)(nil),
 	}
 	file_hub_v1_query_registry_proto_msgTypes[6].OneofWrappers = []any{}
-	file_hub_v1_query_registry_proto_msgTypes[47].OneofWrappers = []any{
+	file_hub_v1_query_registry_proto_msgTypes[49].OneofWrappers = []any{
 		(*CurrentServiceKeyViewV1_CortexServiceKeyStatus)(nil),
 		(*CurrentServiceKeyViewV1_BuilderServiceKeyStatus)(nil),
 	}
-	file_hub_v1_query_registry_proto_msgTypes[48].OneofWrappers = []any{}
+	file_hub_v1_query_registry_proto_msgTypes[50].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_hub_v1_query_registry_proto_rawDesc), len(file_hub_v1_query_registry_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   49,
+			NumMessages:   51,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

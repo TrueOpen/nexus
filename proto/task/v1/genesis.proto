@@ -2,6 +2,7 @@ syntax = "proto3";
 package task.v1;
 
 import "task/v1/anchor.proto";
+import "task/v1/anchor_panel.proto";
 import "task/v1/assignment.proto";
 import "task/v1/challenge.proto";
 import "task/v1/cleanup.proto";
@@ -103,6 +104,15 @@ message GenesisState {
   repeated AnchorAuditState anchor_audits = 94;
   repeated AnchorValidatorVoteState anchor_validator_votes = 95;
   repeated AnchorVoteKeyState anchor_vote_keys = 96;
+
+  // Verifier-panel audit, batch settlement and brake tables. Fields 97-98 are
+  // left to the content-track contract; these tables start at 99. Panel rounds
+  // are exported inside AnchorAuditState.panel_rounds.
+  repeated WorkerBatchState worker_batches = 99;
+  repeated WorkerBatchTaskState worker_batch_tasks = 100;
+  repeated WorkerTimeoutLedgerState worker_timeout_ledgers = 101;
+  repeated VerifierAuditStandingState verifier_audit_standings = 102;
+  repeated AnchorBrakeState anchor_brakes = 103;
 }
 
 // TaskParamsHistoryState retains one superseded parameter body. Version zero

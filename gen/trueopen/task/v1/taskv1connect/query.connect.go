@@ -58,6 +58,26 @@ const (
 	QueryAnchorAuditsPendingProcedure = "/task.v1.Query/AnchorAuditsPending"
 	// QueryAnchorVoteKeyProcedure is the fully-qualified name of the Query's AnchorVoteKey RPC.
 	QueryAnchorVoteKeyProcedure = "/task.v1.Query/AnchorVoteKey"
+	// QueryAnchorPanelAssignmentsProcedure is the fully-qualified name of the Query's
+	// AnchorPanelAssignments RPC.
+	QueryAnchorPanelAssignmentsProcedure = "/task.v1.Query/AnchorPanelAssignments"
+	// QueryAnchorAuditsUnderReviewProcedure is the fully-qualified name of the Query's
+	// AnchorAuditsUnderReview RPC.
+	QueryAnchorAuditsUnderReviewProcedure = "/task.v1.Query/AnchorAuditsUnderReview"
+	// QueryWorkerLateSubmissionsProcedure is the fully-qualified name of the Query's
+	// WorkerLateSubmissions RPC.
+	QueryWorkerLateSubmissionsProcedure = "/task.v1.Query/WorkerLateSubmissions"
+	// QueryWorkerBatchProcedure is the fully-qualified name of the Query's WorkerBatch RPC.
+	QueryWorkerBatchProcedure = "/task.v1.Query/WorkerBatch"
+	// QueryWorkerBatchesProcedure is the fully-qualified name of the Query's WorkerBatches RPC.
+	QueryWorkerBatchesProcedure = "/task.v1.Query/WorkerBatches"
+	// QueryWorkerBatchTasksProcedure is the fully-qualified name of the Query's WorkerBatchTasks RPC.
+	QueryWorkerBatchTasksProcedure = "/task.v1.Query/WorkerBatchTasks"
+	// QueryVerifierAuditStandingProcedure is the fully-qualified name of the Query's
+	// VerifierAuditStanding RPC.
+	QueryVerifierAuditStandingProcedure = "/task.v1.Query/VerifierAuditStanding"
+	// QueryAnchorBrakeProcedure is the fully-qualified name of the Query's AnchorBrake RPC.
+	QueryAnchorBrakeProcedure = "/task.v1.Query/AnchorBrake"
 	// QueryWorkerEvidenceProcedure is the fully-qualified name of the Query's WorkerEvidence RPC.
 	QueryWorkerEvidenceProcedure = "/task.v1.Query/WorkerEvidence"
 	// QueryVerifierValueEvidenceProcedure is the fully-qualified name of the Query's
@@ -156,6 +176,22 @@ type QueryClient interface {
 	AnchorAuditsPending(context.Context, *connect.Request[v1.QueryAnchorAuditsPendingRequest]) (*connect.Response[v1.QueryAnchorAuditsPendingResponse], error)
 	// AnchorVoteKey returns one validator's anchor vote delegation (ADR-0040 v6).
 	AnchorVoteKey(context.Context, *connect.Request[v1.QueryAnchorVoteKeyRequest]) (*connect.Response[v1.QueryAnchorVoteKeyResponse], error)
+	// AnchorPanelAssignments pages over the open panel rounds a Verifier must vote in.
+	AnchorPanelAssignments(context.Context, *connect.Request[v1.QueryAnchorPanelAssignmentsRequest]) (*connect.Response[v1.QueryAnchorPanelAssignmentsResponse], error)
+	// AnchorAuditsUnderReview pages over selected panel-mode audits that are not final yet.
+	AnchorAuditsUnderReview(context.Context, *connect.Request[v1.QueryAnchorAuditsUnderReviewRequest]) (*connect.Response[v1.QueryAnchorAuditsUnderReviewResponse], error)
+	// WorkerLateSubmissions lists a Worker's audits that await or carry a late submission.
+	WorkerLateSubmissions(context.Context, *connect.Request[v1.QueryWorkerLateSubmissionsRequest]) (*connect.Response[v1.QueryWorkerLateSubmissionsResponse], error)
+	// WorkerBatch returns one Worker's settlement batch of one period.
+	WorkerBatch(context.Context, *connect.Request[v1.QueryWorkerBatchRequest]) (*connect.Response[v1.QueryWorkerBatchResponse], error)
+	// WorkerBatches pages over one Worker's settlement batches, newest first.
+	WorkerBatches(context.Context, *connect.Request[v1.QueryWorkerBatchesRequest]) (*connect.Response[v1.QueryWorkerBatchesResponse], error)
+	// WorkerBatchTasks pages over the member tasks of one batch.
+	WorkerBatchTasks(context.Context, *connect.Request[v1.QueryWorkerBatchTasksRequest]) (*connect.Response[v1.QueryWorkerBatchTasksResponse], error)
+	// VerifierAuditStanding returns a Verifier's panel allowance, missed periods and suspension.
+	VerifierAuditStanding(context.Context, *connect.Request[v1.QueryVerifierAuditStandingRequest]) (*connect.Response[v1.QueryVerifierAuditStandingResponse], error)
+	// AnchorBrake returns the per-model brake statistic of one period.
+	AnchorBrake(context.Context, *connect.Request[v1.QueryAnchorBrakeRequest]) (*connect.Response[v1.QueryAnchorBrakeResponse], error)
 	// WorkerEvidence returns one compact objective-evidence receipt.
 	WorkerEvidence(context.Context, *connect.Request[v1.QueryWorkerEvidenceRequest]) (*connect.Response[v1.QueryWorkerEvidenceResponse], error)
 	// VerifierValueEvidence pages accepted compact receipts, ordered by position.
@@ -295,6 +331,54 @@ func NewQueryClient(httpClient connect.HTTPClient, baseURL string, opts ...conne
 			httpClient,
 			baseURL+QueryAnchorVoteKeyProcedure,
 			connect.WithSchema(queryMethods.ByName("AnchorVoteKey")),
+			connect.WithClientOptions(opts...),
+		),
+		anchorPanelAssignments: connect.NewClient[v1.QueryAnchorPanelAssignmentsRequest, v1.QueryAnchorPanelAssignmentsResponse](
+			httpClient,
+			baseURL+QueryAnchorPanelAssignmentsProcedure,
+			connect.WithSchema(queryMethods.ByName("AnchorPanelAssignments")),
+			connect.WithClientOptions(opts...),
+		),
+		anchorAuditsUnderReview: connect.NewClient[v1.QueryAnchorAuditsUnderReviewRequest, v1.QueryAnchorAuditsUnderReviewResponse](
+			httpClient,
+			baseURL+QueryAnchorAuditsUnderReviewProcedure,
+			connect.WithSchema(queryMethods.ByName("AnchorAuditsUnderReview")),
+			connect.WithClientOptions(opts...),
+		),
+		workerLateSubmissions: connect.NewClient[v1.QueryWorkerLateSubmissionsRequest, v1.QueryWorkerLateSubmissionsResponse](
+			httpClient,
+			baseURL+QueryWorkerLateSubmissionsProcedure,
+			connect.WithSchema(queryMethods.ByName("WorkerLateSubmissions")),
+			connect.WithClientOptions(opts...),
+		),
+		workerBatch: connect.NewClient[v1.QueryWorkerBatchRequest, v1.QueryWorkerBatchResponse](
+			httpClient,
+			baseURL+QueryWorkerBatchProcedure,
+			connect.WithSchema(queryMethods.ByName("WorkerBatch")),
+			connect.WithClientOptions(opts...),
+		),
+		workerBatches: connect.NewClient[v1.QueryWorkerBatchesRequest, v1.QueryWorkerBatchesResponse](
+			httpClient,
+			baseURL+QueryWorkerBatchesProcedure,
+			connect.WithSchema(queryMethods.ByName("WorkerBatches")),
+			connect.WithClientOptions(opts...),
+		),
+		workerBatchTasks: connect.NewClient[v1.QueryWorkerBatchTasksRequest, v1.QueryWorkerBatchTasksResponse](
+			httpClient,
+			baseURL+QueryWorkerBatchTasksProcedure,
+			connect.WithSchema(queryMethods.ByName("WorkerBatchTasks")),
+			connect.WithClientOptions(opts...),
+		),
+		verifierAuditStanding: connect.NewClient[v1.QueryVerifierAuditStandingRequest, v1.QueryVerifierAuditStandingResponse](
+			httpClient,
+			baseURL+QueryVerifierAuditStandingProcedure,
+			connect.WithSchema(queryMethods.ByName("VerifierAuditStanding")),
+			connect.WithClientOptions(opts...),
+		),
+		anchorBrake: connect.NewClient[v1.QueryAnchorBrakeRequest, v1.QueryAnchorBrakeResponse](
+			httpClient,
+			baseURL+QueryAnchorBrakeProcedure,
+			connect.WithSchema(queryMethods.ByName("AnchorBrake")),
 			connect.WithClientOptions(opts...),
 		),
 		workerEvidence: connect.NewClient[v1.QueryWorkerEvidenceRequest, v1.QueryWorkerEvidenceResponse](
@@ -476,6 +560,14 @@ type queryClient struct {
 	anchorVotes                         *connect.Client[v1.QueryAnchorVotesRequest, v1.QueryAnchorVotesResponse]
 	anchorAuditsPending                 *connect.Client[v1.QueryAnchorAuditsPendingRequest, v1.QueryAnchorAuditsPendingResponse]
 	anchorVoteKey                       *connect.Client[v1.QueryAnchorVoteKeyRequest, v1.QueryAnchorVoteKeyResponse]
+	anchorPanelAssignments              *connect.Client[v1.QueryAnchorPanelAssignmentsRequest, v1.QueryAnchorPanelAssignmentsResponse]
+	anchorAuditsUnderReview             *connect.Client[v1.QueryAnchorAuditsUnderReviewRequest, v1.QueryAnchorAuditsUnderReviewResponse]
+	workerLateSubmissions               *connect.Client[v1.QueryWorkerLateSubmissionsRequest, v1.QueryWorkerLateSubmissionsResponse]
+	workerBatch                         *connect.Client[v1.QueryWorkerBatchRequest, v1.QueryWorkerBatchResponse]
+	workerBatches                       *connect.Client[v1.QueryWorkerBatchesRequest, v1.QueryWorkerBatchesResponse]
+	workerBatchTasks                    *connect.Client[v1.QueryWorkerBatchTasksRequest, v1.QueryWorkerBatchTasksResponse]
+	verifierAuditStanding               *connect.Client[v1.QueryVerifierAuditStandingRequest, v1.QueryVerifierAuditStandingResponse]
+	anchorBrake                         *connect.Client[v1.QueryAnchorBrakeRequest, v1.QueryAnchorBrakeResponse]
 	workerEvidence                      *connect.Client[v1.QueryWorkerEvidenceRequest, v1.QueryWorkerEvidenceResponse]
 	verifierValueEvidence               *connect.Client[v1.QueryVerifierValueEvidenceRequest, v1.QueryVerifierValueEvidenceResponse]
 	verifierCandidateWindow             *connect.Client[v1.QueryVerifierCandidateWindowRequest, v1.QueryVerifierCandidateWindowResponse]
@@ -563,6 +655,46 @@ func (c *queryClient) AnchorAuditsPending(ctx context.Context, req *connect.Requ
 // AnchorVoteKey calls task.v1.Query.AnchorVoteKey.
 func (c *queryClient) AnchorVoteKey(ctx context.Context, req *connect.Request[v1.QueryAnchorVoteKeyRequest]) (*connect.Response[v1.QueryAnchorVoteKeyResponse], error) {
 	return c.anchorVoteKey.CallUnary(ctx, req)
+}
+
+// AnchorPanelAssignments calls task.v1.Query.AnchorPanelAssignments.
+func (c *queryClient) AnchorPanelAssignments(ctx context.Context, req *connect.Request[v1.QueryAnchorPanelAssignmentsRequest]) (*connect.Response[v1.QueryAnchorPanelAssignmentsResponse], error) {
+	return c.anchorPanelAssignments.CallUnary(ctx, req)
+}
+
+// AnchorAuditsUnderReview calls task.v1.Query.AnchorAuditsUnderReview.
+func (c *queryClient) AnchorAuditsUnderReview(ctx context.Context, req *connect.Request[v1.QueryAnchorAuditsUnderReviewRequest]) (*connect.Response[v1.QueryAnchorAuditsUnderReviewResponse], error) {
+	return c.anchorAuditsUnderReview.CallUnary(ctx, req)
+}
+
+// WorkerLateSubmissions calls task.v1.Query.WorkerLateSubmissions.
+func (c *queryClient) WorkerLateSubmissions(ctx context.Context, req *connect.Request[v1.QueryWorkerLateSubmissionsRequest]) (*connect.Response[v1.QueryWorkerLateSubmissionsResponse], error) {
+	return c.workerLateSubmissions.CallUnary(ctx, req)
+}
+
+// WorkerBatch calls task.v1.Query.WorkerBatch.
+func (c *queryClient) WorkerBatch(ctx context.Context, req *connect.Request[v1.QueryWorkerBatchRequest]) (*connect.Response[v1.QueryWorkerBatchResponse], error) {
+	return c.workerBatch.CallUnary(ctx, req)
+}
+
+// WorkerBatches calls task.v1.Query.WorkerBatches.
+func (c *queryClient) WorkerBatches(ctx context.Context, req *connect.Request[v1.QueryWorkerBatchesRequest]) (*connect.Response[v1.QueryWorkerBatchesResponse], error) {
+	return c.workerBatches.CallUnary(ctx, req)
+}
+
+// WorkerBatchTasks calls task.v1.Query.WorkerBatchTasks.
+func (c *queryClient) WorkerBatchTasks(ctx context.Context, req *connect.Request[v1.QueryWorkerBatchTasksRequest]) (*connect.Response[v1.QueryWorkerBatchTasksResponse], error) {
+	return c.workerBatchTasks.CallUnary(ctx, req)
+}
+
+// VerifierAuditStanding calls task.v1.Query.VerifierAuditStanding.
+func (c *queryClient) VerifierAuditStanding(ctx context.Context, req *connect.Request[v1.QueryVerifierAuditStandingRequest]) (*connect.Response[v1.QueryVerifierAuditStandingResponse], error) {
+	return c.verifierAuditStanding.CallUnary(ctx, req)
+}
+
+// AnchorBrake calls task.v1.Query.AnchorBrake.
+func (c *queryClient) AnchorBrake(ctx context.Context, req *connect.Request[v1.QueryAnchorBrakeRequest]) (*connect.Response[v1.QueryAnchorBrakeResponse], error) {
+	return c.anchorBrake.CallUnary(ctx, req)
 }
 
 // WorkerEvidence calls task.v1.Query.WorkerEvidence.
@@ -731,6 +863,22 @@ type QueryHandler interface {
 	AnchorAuditsPending(context.Context, *connect.Request[v1.QueryAnchorAuditsPendingRequest]) (*connect.Response[v1.QueryAnchorAuditsPendingResponse], error)
 	// AnchorVoteKey returns one validator's anchor vote delegation (ADR-0040 v6).
 	AnchorVoteKey(context.Context, *connect.Request[v1.QueryAnchorVoteKeyRequest]) (*connect.Response[v1.QueryAnchorVoteKeyResponse], error)
+	// AnchorPanelAssignments pages over the open panel rounds a Verifier must vote in.
+	AnchorPanelAssignments(context.Context, *connect.Request[v1.QueryAnchorPanelAssignmentsRequest]) (*connect.Response[v1.QueryAnchorPanelAssignmentsResponse], error)
+	// AnchorAuditsUnderReview pages over selected panel-mode audits that are not final yet.
+	AnchorAuditsUnderReview(context.Context, *connect.Request[v1.QueryAnchorAuditsUnderReviewRequest]) (*connect.Response[v1.QueryAnchorAuditsUnderReviewResponse], error)
+	// WorkerLateSubmissions lists a Worker's audits that await or carry a late submission.
+	WorkerLateSubmissions(context.Context, *connect.Request[v1.QueryWorkerLateSubmissionsRequest]) (*connect.Response[v1.QueryWorkerLateSubmissionsResponse], error)
+	// WorkerBatch returns one Worker's settlement batch of one period.
+	WorkerBatch(context.Context, *connect.Request[v1.QueryWorkerBatchRequest]) (*connect.Response[v1.QueryWorkerBatchResponse], error)
+	// WorkerBatches pages over one Worker's settlement batches, newest first.
+	WorkerBatches(context.Context, *connect.Request[v1.QueryWorkerBatchesRequest]) (*connect.Response[v1.QueryWorkerBatchesResponse], error)
+	// WorkerBatchTasks pages over the member tasks of one batch.
+	WorkerBatchTasks(context.Context, *connect.Request[v1.QueryWorkerBatchTasksRequest]) (*connect.Response[v1.QueryWorkerBatchTasksResponse], error)
+	// VerifierAuditStanding returns a Verifier's panel allowance, missed periods and suspension.
+	VerifierAuditStanding(context.Context, *connect.Request[v1.QueryVerifierAuditStandingRequest]) (*connect.Response[v1.QueryVerifierAuditStandingResponse], error)
+	// AnchorBrake returns the per-model brake statistic of one period.
+	AnchorBrake(context.Context, *connect.Request[v1.QueryAnchorBrakeRequest]) (*connect.Response[v1.QueryAnchorBrakeResponse], error)
 	// WorkerEvidence returns one compact objective-evidence receipt.
 	WorkerEvidence(context.Context, *connect.Request[v1.QueryWorkerEvidenceRequest]) (*connect.Response[v1.QueryWorkerEvidenceResponse], error)
 	// VerifierValueEvidence pages accepted compact receipts, ordered by position.
@@ -866,6 +1014,54 @@ func NewQueryHandler(svc QueryHandler, opts ...connect.HandlerOption) (string, h
 		QueryAnchorVoteKeyProcedure,
 		svc.AnchorVoteKey,
 		connect.WithSchema(queryMethods.ByName("AnchorVoteKey")),
+		connect.WithHandlerOptions(opts...),
+	)
+	queryAnchorPanelAssignmentsHandler := connect.NewUnaryHandler(
+		QueryAnchorPanelAssignmentsProcedure,
+		svc.AnchorPanelAssignments,
+		connect.WithSchema(queryMethods.ByName("AnchorPanelAssignments")),
+		connect.WithHandlerOptions(opts...),
+	)
+	queryAnchorAuditsUnderReviewHandler := connect.NewUnaryHandler(
+		QueryAnchorAuditsUnderReviewProcedure,
+		svc.AnchorAuditsUnderReview,
+		connect.WithSchema(queryMethods.ByName("AnchorAuditsUnderReview")),
+		connect.WithHandlerOptions(opts...),
+	)
+	queryWorkerLateSubmissionsHandler := connect.NewUnaryHandler(
+		QueryWorkerLateSubmissionsProcedure,
+		svc.WorkerLateSubmissions,
+		connect.WithSchema(queryMethods.ByName("WorkerLateSubmissions")),
+		connect.WithHandlerOptions(opts...),
+	)
+	queryWorkerBatchHandler := connect.NewUnaryHandler(
+		QueryWorkerBatchProcedure,
+		svc.WorkerBatch,
+		connect.WithSchema(queryMethods.ByName("WorkerBatch")),
+		connect.WithHandlerOptions(opts...),
+	)
+	queryWorkerBatchesHandler := connect.NewUnaryHandler(
+		QueryWorkerBatchesProcedure,
+		svc.WorkerBatches,
+		connect.WithSchema(queryMethods.ByName("WorkerBatches")),
+		connect.WithHandlerOptions(opts...),
+	)
+	queryWorkerBatchTasksHandler := connect.NewUnaryHandler(
+		QueryWorkerBatchTasksProcedure,
+		svc.WorkerBatchTasks,
+		connect.WithSchema(queryMethods.ByName("WorkerBatchTasks")),
+		connect.WithHandlerOptions(opts...),
+	)
+	queryVerifierAuditStandingHandler := connect.NewUnaryHandler(
+		QueryVerifierAuditStandingProcedure,
+		svc.VerifierAuditStanding,
+		connect.WithSchema(queryMethods.ByName("VerifierAuditStanding")),
+		connect.WithHandlerOptions(opts...),
+	)
+	queryAnchorBrakeHandler := connect.NewUnaryHandler(
+		QueryAnchorBrakeProcedure,
+		svc.AnchorBrake,
+		connect.WithSchema(queryMethods.ByName("AnchorBrake")),
 		connect.WithHandlerOptions(opts...),
 	)
 	queryWorkerEvidenceHandler := connect.NewUnaryHandler(
@@ -1056,6 +1252,22 @@ func NewQueryHandler(svc QueryHandler, opts ...connect.HandlerOption) (string, h
 			queryAnchorAuditsPendingHandler.ServeHTTP(w, r)
 		case QueryAnchorVoteKeyProcedure:
 			queryAnchorVoteKeyHandler.ServeHTTP(w, r)
+		case QueryAnchorPanelAssignmentsProcedure:
+			queryAnchorPanelAssignmentsHandler.ServeHTTP(w, r)
+		case QueryAnchorAuditsUnderReviewProcedure:
+			queryAnchorAuditsUnderReviewHandler.ServeHTTP(w, r)
+		case QueryWorkerLateSubmissionsProcedure:
+			queryWorkerLateSubmissionsHandler.ServeHTTP(w, r)
+		case QueryWorkerBatchProcedure:
+			queryWorkerBatchHandler.ServeHTTP(w, r)
+		case QueryWorkerBatchesProcedure:
+			queryWorkerBatchesHandler.ServeHTTP(w, r)
+		case QueryWorkerBatchTasksProcedure:
+			queryWorkerBatchTasksHandler.ServeHTTP(w, r)
+		case QueryVerifierAuditStandingProcedure:
+			queryVerifierAuditStandingHandler.ServeHTTP(w, r)
+		case QueryAnchorBrakeProcedure:
+			queryAnchorBrakeHandler.ServeHTTP(w, r)
 		case QueryWorkerEvidenceProcedure:
 			queryWorkerEvidenceHandler.ServeHTTP(w, r)
 		case QueryVerifierValueEvidenceProcedure:
@@ -1165,6 +1377,38 @@ func (UnimplementedQueryHandler) AnchorAuditsPending(context.Context, *connect.R
 
 func (UnimplementedQueryHandler) AnchorVoteKey(context.Context, *connect.Request[v1.QueryAnchorVoteKeyRequest]) (*connect.Response[v1.QueryAnchorVoteKeyResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("task.v1.Query.AnchorVoteKey is not implemented"))
+}
+
+func (UnimplementedQueryHandler) AnchorPanelAssignments(context.Context, *connect.Request[v1.QueryAnchorPanelAssignmentsRequest]) (*connect.Response[v1.QueryAnchorPanelAssignmentsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("task.v1.Query.AnchorPanelAssignments is not implemented"))
+}
+
+func (UnimplementedQueryHandler) AnchorAuditsUnderReview(context.Context, *connect.Request[v1.QueryAnchorAuditsUnderReviewRequest]) (*connect.Response[v1.QueryAnchorAuditsUnderReviewResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("task.v1.Query.AnchorAuditsUnderReview is not implemented"))
+}
+
+func (UnimplementedQueryHandler) WorkerLateSubmissions(context.Context, *connect.Request[v1.QueryWorkerLateSubmissionsRequest]) (*connect.Response[v1.QueryWorkerLateSubmissionsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("task.v1.Query.WorkerLateSubmissions is not implemented"))
+}
+
+func (UnimplementedQueryHandler) WorkerBatch(context.Context, *connect.Request[v1.QueryWorkerBatchRequest]) (*connect.Response[v1.QueryWorkerBatchResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("task.v1.Query.WorkerBatch is not implemented"))
+}
+
+func (UnimplementedQueryHandler) WorkerBatches(context.Context, *connect.Request[v1.QueryWorkerBatchesRequest]) (*connect.Response[v1.QueryWorkerBatchesResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("task.v1.Query.WorkerBatches is not implemented"))
+}
+
+func (UnimplementedQueryHandler) WorkerBatchTasks(context.Context, *connect.Request[v1.QueryWorkerBatchTasksRequest]) (*connect.Response[v1.QueryWorkerBatchTasksResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("task.v1.Query.WorkerBatchTasks is not implemented"))
+}
+
+func (UnimplementedQueryHandler) VerifierAuditStanding(context.Context, *connect.Request[v1.QueryVerifierAuditStandingRequest]) (*connect.Response[v1.QueryVerifierAuditStandingResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("task.v1.Query.VerifierAuditStanding is not implemented"))
+}
+
+func (UnimplementedQueryHandler) AnchorBrake(context.Context, *connect.Request[v1.QueryAnchorBrakeRequest]) (*connect.Response[v1.QueryAnchorBrakeResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("task.v1.Query.AnchorBrake is not implemented"))
 }
 
 func (UnimplementedQueryHandler) WorkerEvidence(context.Context, *connect.Request[v1.QueryWorkerEvidenceRequest]) (*connect.Response[v1.QueryWorkerEvidenceResponse], error) {

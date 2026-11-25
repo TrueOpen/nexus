@@ -181,6 +181,26 @@ message SignedOrderV2 {
   uint64 signature_chain_id = 4;
 }
 
+// OrderInputTokensAttestationV1 is the user's signed statement of how many
+// input tokens an order has. TaskOrderV3 is a closed signed field list, so the
+// count travels beside the order instead of inside it: it is bound to the order
+// by order_digest and signed with the same key and scheme as the order
+// (domain TRUEOPEN_ORDER_INPUT_TOKENS_V1 over schema_version, chain_id,
+// order_digest and input_token_count). Absent means the user made no statement.
+message OrderInputTokensAttestationV1 {
+  // Always 1.
+  uint32 schema_version = 1;
+  string chain_id = 2;
+  // Digest of the TaskOrderV3 the count belongs to.
+  bytes order_digest = 3;
+  // Number of input tokens after the Profile's tokenizer and chat template.
+  uint64 input_token_count = 4;
+  // Same values as SignedOrderV2 of the order.
+  string signature_scheme = 5;
+  bytes user_signature = 6;
+  uint64 signature_chain_id = 7;
+}
+
 // ExistingTaskRefV1 addresses an already accepted task for a follow-up proposal
 // (the wire API). task_hash is an immutable conflict guard and must equal the
 // authoritative task value.

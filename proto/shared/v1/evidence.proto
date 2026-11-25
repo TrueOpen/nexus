@@ -35,6 +35,12 @@ message InferEvidenceRequirementV1 {
   EvidenceKind evidence_kind = 1;
   uint32 commitment_schema_version = 2;
   uint64 max_encoded_size_bytes = 3;
+  // WORKER_ANCHOR_OPENING only, optional: sha256 of the canonical
+  // registration.json of the verification registration (which binds the
+  // weight commitments and thresholds) this Profile version is audited
+  // against. An entry that leaves it empty is encoded and hashed exactly as
+  // before; an entry that sets it includes it in evidence_schema_hash.
+  bytes registration_hash = 4;
 }
 
 // EvidenceSchemaV1 is the readable descriptor committed by

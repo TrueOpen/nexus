@@ -18,7 +18,7 @@ import (
 // Moving to a new wire release means re-running the tool, regenerating, and updating this value.
 func TestNodeMirrorDescriptorFingerprint(t *testing.T) {
 	got, summary := protofingerprint.Descriptor("hub/v1/", "shared/v1/", "task/v1/")
-	const want = "821ecb334acdbf5038a256e3169bdf61d341ffd9a7697fc5beec3a46954a1fb4"
+	const want = "0adeef9c564ec8c1f5795f83a43fcdcbc60044e839d0c99516190790bf53a36c"
 	if got != want {
 		t.Fatalf("Node mirror descriptor fingerprint = %s, want %s (messages=%d enums=%d methods=%d)", got, want, summary.Messages, summary.Enums, summary.Methods)
 	}
@@ -261,7 +261,7 @@ func TestNodeDescriptorTaskMsgWire(t *testing.T) {
 		assertContractField(t, "hub.v1.ServiceDescriptorState", 5, "endpoints", protoreflect.MessageKind, false)
 		assertContractField(t, "hub.v1.ServiceDescriptorState", 6, "descriptor_hash", protoreflect.BytesKind, false)
 
-		// The three-value closed enum: the numbers are frozen, no reordering or additions.
+		// The closed enum: the numbers are frozen and never reordered.
 		assertServiceEndpointKindValues(t)
 	})
 
@@ -492,6 +492,9 @@ func assertServiceEndpointKindValues(t *testing.T) {
 		1: "SERVICE_ENDPOINT_KIND_NEXUS_GRPC",
 		2: "SERVICE_ENDPOINT_KIND_OBJECT_GATEWAY_HTTPS",
 		3: "SERVICE_ENDPOINT_KIND_HEALTH_HTTPS",
+		// Worker-side kinds of the anchor audit; a Builder descriptor never carries them.
+		4: "SERVICE_ENDPOINT_KIND_ANCHOR_DA",
+		5: "SERVICE_ENDPOINT_KIND_ANCHOR_RELAY",
 	}
 	if enum.Values().Len() != len(want) {
 		t.Fatalf("ServiceEndpointKind has %d values, want the closed set of %d", enum.Values().Len(), len(want))

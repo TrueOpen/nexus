@@ -961,8 +961,13 @@ type MsgDeclareModelSupport struct {
 	ModelId                []byte                 `protobuf:"bytes,2,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
 	InferenceCapability    bool                   `protobuf:"varint,4,opt,name=inference_capability,json=inferenceCapability,proto3" json:"inference_capability,omitempty"`
 	VerificationCapability bool                   `protobuf:"varint,5,opt,name=verification_capability,json=verificationCapability,proto3" json:"verification_capability,omitempty"`
-	unknownFields          protoimpl.UnknownFields
-	sizeCache              protoimpl.SizeCache
+	// The operator audits anchor proofs of this model on a Verifier panel. It
+	// needs neither a GPU nor verification_capability. Refused for an account,
+	// service address or key of a bonded consensus validator when
+	// min_validator_separation is set.
+	AuditCapability bool `protobuf:"varint,6,opt,name=audit_capability,json=auditCapability,proto3" json:"audit_capability,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *MsgDeclareModelSupport) Reset() {
@@ -1019,6 +1024,13 @@ func (x *MsgDeclareModelSupport) GetInferenceCapability() bool {
 func (x *MsgDeclareModelSupport) GetVerificationCapability() bool {
 	if x != nil {
 		return x.VerificationCapability
+	}
+	return false
+}
+
+func (x *MsgDeclareModelSupport) GetAuditCapability() bool {
+	if x != nil {
+		return x.AuditCapability
 	}
 	return false
 }
@@ -1380,12 +1392,13 @@ const file_hub_v1_msg_registry_proto_rawDesc = "" +
 	"\"MsgWithdrawServiceUnbondedResponse\x12<\n" +
 	"\x10withdrawn_amount\x18\x01 \x01(\v2\x11.shared.v1.AmountR\x0fwithdrawnAmount\x12'\n" +
 	"\x0fwithdrawn_items\x18\x02 \x01(\rR\x0ewithdrawnItems\x123\n" +
-	"\x06status\x18\x03 \x01(\x0e2\x1b.shared.v1.MutationStatusV1R\x06status\"\xca\x01\n" +
+	"\x06status\x18\x03 \x01(\x0e2\x1b.shared.v1.MutationStatusV1R\x06status\"\xf5\x01\n" +
 	"\x16MsgDeclareModelSupport\x12)\n" +
 	"\x10operator_address\x18\x01 \x01(\tR\x0foperatorAddress\x12\x19\n" +
 	"\bmodel_id\x18\x02 \x01(\fR\amodelId\x121\n" +
 	"\x14inference_capability\x18\x04 \x01(\bR\x13inferenceCapability\x127\n" +
-	"\x17verification_capability\x18\x05 \x01(\bR\x16verificationCapability\"\xd1\x01\n" +
+	"\x17verification_capability\x18\x05 \x01(\bR\x16verificationCapability\x12)\n" +
+	"\x10audit_capability\x18\x06 \x01(\bR\x0fauditCapability\"\xd1\x01\n" +
 	"\x1eMsgDeclareModelSupportResponse\x12'\n" +
 	"\x0fsupport_version\x18\x01 \x01(\x04R\x0esupportVersion\x12%\n" +
 	"\x0esupport_active\x18\x02 \x01(\bR\rsupportActive\x12*\n" +

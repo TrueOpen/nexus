@@ -9,6 +9,7 @@ import "task/v1/commit.proto";
 import "task/v1/dispatch.proto";
 import "task/v1/evidence.proto";
 import "task/v1/infer_receipt.proto";
+import "task/v1/msg_assignment.proto";
 import "task/v1/result.proto";
 
 option go_package = "github.com/TrueOpen/nexus/gen/trueopen/nexus/v1;nexusv1";
@@ -513,6 +514,9 @@ message OpenTaskHeader {
   // signature is verified on its own and the stored SignedOrder is kept. A
   // replacement (RBF) version must use a new key.
   string idempotency_key = 12;
+  // Optional signed statement of the order's input token count; the Builder
+  // relays it with the dispatch record (MsgRecordDispatch).
+  task.v1.OrderInputTokensAttestationV1 input_tokens_attestation = 13;
 }
 
 // OpenTaskRequest defines the OpenTaskRequest wire type.

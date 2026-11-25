@@ -66,6 +66,14 @@ const (
 	// MsgRegisterAnchorVoteKeyProcedure is the fully-qualified name of the Msg's RegisterAnchorVoteKey
 	// RPC.
 	MsgRegisterAnchorVoteKeyProcedure = "/task.v1.Msg/RegisterAnchorVoteKey"
+	// MsgSubmitAnchorPanelVoteProcedure is the fully-qualified name of the Msg's SubmitAnchorPanelVote
+	// RPC.
+	MsgSubmitAnchorPanelVoteProcedure = "/task.v1.Msg/SubmitAnchorPanelVote"
+	// MsgRequestAnchorReauditProcedure is the fully-qualified name of the Msg's RequestAnchorReaudit
+	// RPC.
+	MsgRequestAnchorReauditProcedure = "/task.v1.Msg/RequestAnchorReaudit"
+	// MsgReleaseAnchorBrakeProcedure is the fully-qualified name of the Msg's ReleaseAnchorBrake RPC.
+	MsgReleaseAnchorBrakeProcedure = "/task.v1.Msg/ReleaseAnchorBrake"
 	// MsgReportDataUnavailableProcedure is the fully-qualified name of the Msg's ReportDataUnavailable
 	// RPC.
 	MsgReportDataUnavailableProcedure = "/task.v1.Msg/ReportDataUnavailable"
@@ -152,6 +160,12 @@ type MsgClient interface {
 	SubmitAnchorValidatorVote(context.Context, *connect.Request[v1.MsgSubmitAnchorValidatorVote]) (*connect.Response[v1.MsgSubmitAnchorValidatorVoteResponse], error)
 	// RegisterAnchorVoteKey delegates a validator's anchor votes to a hot vote address (ADR-0040 v6).
 	RegisterAnchorVoteKey(context.Context, *connect.Request[v1.MsgRegisterAnchorVoteKey]) (*connect.Response[v1.MsgRegisterAnchorVoteKeyResponse], error)
+	// SubmitAnchorPanelVote records a drawn Verifier's vote on a selected audit (anchor_audit_mode 2).
+	SubmitAnchorPanelVote(context.Context, *connect.Request[v1.MsgSubmitAnchorPanelVote]) (*connect.Response[v1.MsgSubmitAnchorPanelVoteResponse], error)
+	// RequestAnchorReaudit pays for one more panel round during the publication period.
+	RequestAnchorReaudit(context.Context, *connect.Request[v1.MsgRequestAnchorReaudit]) (*connect.Response[v1.MsgRequestAnchorReauditResponse], error)
+	// ReleaseAnchorBrake applies or discards the effects withheld by a tripped brake.
+	ReleaseAnchorBrake(context.Context, *connect.Request[v1.MsgReleaseAnchorBrake]) (*connect.Response[v1.MsgReleaseAnchorBrakeResponse], error)
 	// ReportDataUnavailable records one selected Verifier's data-availability report.
 	ReportDataUnavailable(context.Context, *connect.Request[v1.MsgReportDataUnavailable]) (*connect.Response[v1.MsgReportDataUnavailableResponse], error)
 	// SubmitBuilderEvidence accepts one closed typed objective Builder proof.
@@ -287,6 +301,24 @@ func NewMsgClient(httpClient connect.HTTPClient, baseURL string, opts ...connect
 			httpClient,
 			baseURL+MsgRegisterAnchorVoteKeyProcedure,
 			connect.WithSchema(msgMethods.ByName("RegisterAnchorVoteKey")),
+			connect.WithClientOptions(opts...),
+		),
+		submitAnchorPanelVote: connect.NewClient[v1.MsgSubmitAnchorPanelVote, v1.MsgSubmitAnchorPanelVoteResponse](
+			httpClient,
+			baseURL+MsgSubmitAnchorPanelVoteProcedure,
+			connect.WithSchema(msgMethods.ByName("SubmitAnchorPanelVote")),
+			connect.WithClientOptions(opts...),
+		),
+		requestAnchorReaudit: connect.NewClient[v1.MsgRequestAnchorReaudit, v1.MsgRequestAnchorReauditResponse](
+			httpClient,
+			baseURL+MsgRequestAnchorReauditProcedure,
+			connect.WithSchema(msgMethods.ByName("RequestAnchorReaudit")),
+			connect.WithClientOptions(opts...),
+		),
+		releaseAnchorBrake: connect.NewClient[v1.MsgReleaseAnchorBrake, v1.MsgReleaseAnchorBrakeResponse](
+			httpClient,
+			baseURL+MsgReleaseAnchorBrakeProcedure,
+			connect.WithSchema(msgMethods.ByName("ReleaseAnchorBrake")),
 			connect.WithClientOptions(opts...),
 		),
 		reportDataUnavailable: connect.NewClient[v1.MsgReportDataUnavailable, v1.MsgReportDataUnavailableResponse](
@@ -427,6 +459,9 @@ type msgClient struct {
 	submitAnchorAuditResult         *connect.Client[v1.MsgSubmitAnchorAuditResult, v1.MsgSubmitAnchorAuditResultResponse]
 	submitAnchorValidatorVote       *connect.Client[v1.MsgSubmitAnchorValidatorVote, v1.MsgSubmitAnchorValidatorVoteResponse]
 	registerAnchorVoteKey           *connect.Client[v1.MsgRegisterAnchorVoteKey, v1.MsgRegisterAnchorVoteKeyResponse]
+	submitAnchorPanelVote           *connect.Client[v1.MsgSubmitAnchorPanelVote, v1.MsgSubmitAnchorPanelVoteResponse]
+	requestAnchorReaudit            *connect.Client[v1.MsgRequestAnchorReaudit, v1.MsgRequestAnchorReauditResponse]
+	releaseAnchorBrake              *connect.Client[v1.MsgReleaseAnchorBrake, v1.MsgReleaseAnchorBrakeResponse]
 	reportDataUnavailable           *connect.Client[v1.MsgReportDataUnavailable, v1.MsgReportDataUnavailableResponse]
 	submitBuilderEvidence           *connect.Client[v1.MsgSubmitBuilderEvidence, v11.BuilderObjectiveEvidenceReceiptV2]
 	submitVerifyCommit              *connect.Client[v1.MsgSubmitVerifyCommit, v1.MsgSubmitVerifyCommitResponse]
@@ -512,6 +547,21 @@ func (c *msgClient) SubmitAnchorValidatorVote(ctx context.Context, req *connect.
 // RegisterAnchorVoteKey calls task.v1.Msg.RegisterAnchorVoteKey.
 func (c *msgClient) RegisterAnchorVoteKey(ctx context.Context, req *connect.Request[v1.MsgRegisterAnchorVoteKey]) (*connect.Response[v1.MsgRegisterAnchorVoteKeyResponse], error) {
 	return c.registerAnchorVoteKey.CallUnary(ctx, req)
+}
+
+// SubmitAnchorPanelVote calls task.v1.Msg.SubmitAnchorPanelVote.
+func (c *msgClient) SubmitAnchorPanelVote(ctx context.Context, req *connect.Request[v1.MsgSubmitAnchorPanelVote]) (*connect.Response[v1.MsgSubmitAnchorPanelVoteResponse], error) {
+	return c.submitAnchorPanelVote.CallUnary(ctx, req)
+}
+
+// RequestAnchorReaudit calls task.v1.Msg.RequestAnchorReaudit.
+func (c *msgClient) RequestAnchorReaudit(ctx context.Context, req *connect.Request[v1.MsgRequestAnchorReaudit]) (*connect.Response[v1.MsgRequestAnchorReauditResponse], error) {
+	return c.requestAnchorReaudit.CallUnary(ctx, req)
+}
+
+// ReleaseAnchorBrake calls task.v1.Msg.ReleaseAnchorBrake.
+func (c *msgClient) ReleaseAnchorBrake(ctx context.Context, req *connect.Request[v1.MsgReleaseAnchorBrake]) (*connect.Response[v1.MsgReleaseAnchorBrakeResponse], error) {
+	return c.releaseAnchorBrake.CallUnary(ctx, req)
 }
 
 // ReportDataUnavailable calls task.v1.Msg.ReportDataUnavailable.
@@ -646,6 +696,12 @@ type MsgHandler interface {
 	SubmitAnchorValidatorVote(context.Context, *connect.Request[v1.MsgSubmitAnchorValidatorVote]) (*connect.Response[v1.MsgSubmitAnchorValidatorVoteResponse], error)
 	// RegisterAnchorVoteKey delegates a validator's anchor votes to a hot vote address (ADR-0040 v6).
 	RegisterAnchorVoteKey(context.Context, *connect.Request[v1.MsgRegisterAnchorVoteKey]) (*connect.Response[v1.MsgRegisterAnchorVoteKeyResponse], error)
+	// SubmitAnchorPanelVote records a drawn Verifier's vote on a selected audit (anchor_audit_mode 2).
+	SubmitAnchorPanelVote(context.Context, *connect.Request[v1.MsgSubmitAnchorPanelVote]) (*connect.Response[v1.MsgSubmitAnchorPanelVoteResponse], error)
+	// RequestAnchorReaudit pays for one more panel round during the publication period.
+	RequestAnchorReaudit(context.Context, *connect.Request[v1.MsgRequestAnchorReaudit]) (*connect.Response[v1.MsgRequestAnchorReauditResponse], error)
+	// ReleaseAnchorBrake applies or discards the effects withheld by a tripped brake.
+	ReleaseAnchorBrake(context.Context, *connect.Request[v1.MsgReleaseAnchorBrake]) (*connect.Response[v1.MsgReleaseAnchorBrakeResponse], error)
 	// ReportDataUnavailable records one selected Verifier's data-availability report.
 	ReportDataUnavailable(context.Context, *connect.Request[v1.MsgReportDataUnavailable]) (*connect.Response[v1.MsgReportDataUnavailableResponse], error)
 	// SubmitBuilderEvidence accepts one closed typed objective Builder proof.
@@ -777,6 +833,24 @@ func NewMsgHandler(svc MsgHandler, opts ...connect.HandlerOption) (string, http.
 		MsgRegisterAnchorVoteKeyProcedure,
 		svc.RegisterAnchorVoteKey,
 		connect.WithSchema(msgMethods.ByName("RegisterAnchorVoteKey")),
+		connect.WithHandlerOptions(opts...),
+	)
+	msgSubmitAnchorPanelVoteHandler := connect.NewUnaryHandler(
+		MsgSubmitAnchorPanelVoteProcedure,
+		svc.SubmitAnchorPanelVote,
+		connect.WithSchema(msgMethods.ByName("SubmitAnchorPanelVote")),
+		connect.WithHandlerOptions(opts...),
+	)
+	msgRequestAnchorReauditHandler := connect.NewUnaryHandler(
+		MsgRequestAnchorReauditProcedure,
+		svc.RequestAnchorReaudit,
+		connect.WithSchema(msgMethods.ByName("RequestAnchorReaudit")),
+		connect.WithHandlerOptions(opts...),
+	)
+	msgReleaseAnchorBrakeHandler := connect.NewUnaryHandler(
+		MsgReleaseAnchorBrakeProcedure,
+		svc.ReleaseAnchorBrake,
+		connect.WithSchema(msgMethods.ByName("ReleaseAnchorBrake")),
 		connect.WithHandlerOptions(opts...),
 	)
 	msgReportDataUnavailableHandler := connect.NewUnaryHandler(
@@ -927,6 +1001,12 @@ func NewMsgHandler(svc MsgHandler, opts ...connect.HandlerOption) (string, http.
 			msgSubmitAnchorValidatorVoteHandler.ServeHTTP(w, r)
 		case MsgRegisterAnchorVoteKeyProcedure:
 			msgRegisterAnchorVoteKeyHandler.ServeHTTP(w, r)
+		case MsgSubmitAnchorPanelVoteProcedure:
+			msgSubmitAnchorPanelVoteHandler.ServeHTTP(w, r)
+		case MsgRequestAnchorReauditProcedure:
+			msgRequestAnchorReauditHandler.ServeHTTP(w, r)
+		case MsgReleaseAnchorBrakeProcedure:
+			msgReleaseAnchorBrakeHandler.ServeHTTP(w, r)
 		case MsgReportDataUnavailableProcedure:
 			msgReportDataUnavailableHandler.ServeHTTP(w, r)
 		case MsgSubmitBuilderEvidenceProcedure:
@@ -1026,6 +1106,18 @@ func (UnimplementedMsgHandler) SubmitAnchorValidatorVote(context.Context, *conne
 
 func (UnimplementedMsgHandler) RegisterAnchorVoteKey(context.Context, *connect.Request[v1.MsgRegisterAnchorVoteKey]) (*connect.Response[v1.MsgRegisterAnchorVoteKeyResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("task.v1.Msg.RegisterAnchorVoteKey is not implemented"))
+}
+
+func (UnimplementedMsgHandler) SubmitAnchorPanelVote(context.Context, *connect.Request[v1.MsgSubmitAnchorPanelVote]) (*connect.Response[v1.MsgSubmitAnchorPanelVoteResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("task.v1.Msg.SubmitAnchorPanelVote is not implemented"))
+}
+
+func (UnimplementedMsgHandler) RequestAnchorReaudit(context.Context, *connect.Request[v1.MsgRequestAnchorReaudit]) (*connect.Response[v1.MsgRequestAnchorReauditResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("task.v1.Msg.RequestAnchorReaudit is not implemented"))
+}
+
+func (UnimplementedMsgHandler) ReleaseAnchorBrake(context.Context, *connect.Request[v1.MsgReleaseAnchorBrake]) (*connect.Response[v1.MsgReleaseAnchorBrakeResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("task.v1.Msg.ReleaseAnchorBrake is not implemented"))
 }
 
 func (UnimplementedMsgHandler) ReportDataUnavailable(context.Context, *connect.Request[v1.MsgReportDataUnavailable]) (*connect.Response[v1.MsgReportDataUnavailableResponse], error) {

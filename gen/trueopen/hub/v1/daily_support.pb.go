@@ -111,8 +111,10 @@ type ModelCapabilityState struct {
 	InferenceCapability    bool                   `protobuf:"varint,4,opt,name=inference_capability,json=inferenceCapability,proto3" json:"inference_capability,omitempty"`
 	VerificationCapability bool                   `protobuf:"varint,5,opt,name=verification_capability,json=verificationCapability,proto3" json:"verification_capability,omitempty"`
 	CapabilityVersion      uint64                 `protobuf:"varint,6,opt,name=capability_version,json=capabilityVersion,proto3" json:"capability_version,omitempty"`
-	unknownFields          protoimpl.UnknownFields
-	sizeCache              protoimpl.SizeCache
+	// The operator may be drawn for Verifier panels of this model.
+	AuditCapability bool `protobuf:"varint,7,opt,name=audit_capability,json=auditCapability,proto3" json:"audit_capability,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *ModelCapabilityState) Reset() {
@@ -178,6 +180,13 @@ func (x *ModelCapabilityState) GetCapabilityVersion() uint64 {
 		return x.CapabilityVersion
 	}
 	return 0
+}
+
+func (x *ModelCapabilityState) GetAuditCapability() bool {
+	if x != nil {
+		return x.AuditCapability
+	}
+	return false
 }
 
 // ModelSupportRecheckCursorState resumes a bounded model support threshold
@@ -566,13 +575,14 @@ const file_hub_v1_daily_support_proto_rawDesc = "" +
 	"\x10operator_address\x18\x02 \x01(\tR\x0foperatorAddress\x122\n" +
 	"\x15supported_models_hash\x18\x03 \x01(\fR\x13supportedModelsHash\x12)\n" +
 	"\x10signature_digest\x18\x04 \x01(\fR\x0fsignatureDigest\x12'\n" +
-	"\x0faccepted_height\x18\x05 \x01(\x04R\x0eacceptedHeight\"\xf7\x01\n" +
+	"\x0faccepted_height\x18\x05 \x01(\x04R\x0eacceptedHeight\"\xa2\x02\n" +
 	"\x14ModelCapabilityState\x12)\n" +
 	"\x10operator_address\x18\x01 \x01(\tR\x0foperatorAddress\x12\x19\n" +
 	"\bmodel_id\x18\x02 \x01(\fR\amodelId\x121\n" +
 	"\x14inference_capability\x18\x04 \x01(\bR\x13inferenceCapability\x127\n" +
 	"\x17verification_capability\x18\x05 \x01(\bR\x16verificationCapability\x12-\n" +
-	"\x12capability_version\x18\x06 \x01(\x04R\x11capabilityVersion\"\xbb\x02\n" +
+	"\x12capability_version\x18\x06 \x01(\x04R\x11capabilityVersion\x12)\n" +
+	"\x10audit_capability\x18\a \x01(\bR\x0fauditCapability\"\xbb\x02\n" +
 	"\x1eModelSupportRecheckCursorState\x12\x19\n" +
 	"\bmodel_id\x18\x01 \x01(\fR\amodelId\x12)\n" +
 	"\x10effective_height\x18\x02 \x01(\x04R\x0feffectiveHeight\x122\n" +

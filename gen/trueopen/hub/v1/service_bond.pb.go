@@ -37,8 +37,18 @@ type ServiceBondState struct {
 	NormalActionCountSinceJail uint32                 `protobuf:"varint,10,opt,name=normal_action_count_since_jail,json=normalActionCountSinceJail,proto3" json:"normal_action_count_since_jail,omitempty"`
 	LastStakeHeight            uint64                 `protobuf:"varint,11,opt,name=last_stake_height,json=lastStakeHeight,proto3" json:"last_stake_height,omitempty"`
 	LastUnstakeHeight          uint64                 `protobuf:"varint,12,opt,name=last_unstake_height,json=lastUnstakeHeight,proto3" json:"last_unstake_height,omitempty"`
-	unknownFields              protoimpl.UnknownFields
-	sizeCache                  protoimpl.SizeCache
+	// Accounts that funded the bond: the signer of the first stake message and
+	// of later top-ups from other accounts, at most four. A Verifier whose bond
+	// shares a funder with a Worker's bond is not drawn to audit that Worker.
+	BondFunderAddresses []string `protobuf:"bytes,13,rep,name=bond_funder_addresses,json=bondFunderAddresses,proto3" json:"bond_funder_addresses,omitempty"`
+	// The operator is not a Worker dispatch candidate while this is set. It may
+	// finish tasks already assigned and may still be drawn as a Verifier.
+	DispatchPaused bool `protobuf:"varint,14,opt,name=dispatch_paused,json=dispatchPaused,proto3" json:"dispatch_paused,omitempty"`
+	// Why dispatch is paused, as a bit set: 1 = an anchor audit awaits a late
+	// submission, 2 = a service unbonding was requested, 4 = jailed.
+	PauseReasons  uint32 `protobuf:"varint,15,opt,name=pause_reasons,json=pauseReasons,proto3" json:"pause_reasons,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ServiceBondState) Reset() {
@@ -155,6 +165,110 @@ func (x *ServiceBondState) GetLastUnstakeHeight() uint64 {
 	return 0
 }
 
+func (x *ServiceBondState) GetBondFunderAddresses() []string {
+	if x != nil {
+		return x.BondFunderAddresses
+	}
+	return nil
+}
+
+func (x *ServiceBondState) GetDispatchPaused() bool {
+	if x != nil {
+		return x.DispatchPaused
+	}
+	return false
+}
+
+func (x *ServiceBondState) GetPauseReasons() uint32 {
+	if x != nil {
+		return x.PauseReasons
+	}
+	return 0
+}
+
+// WorkerQuotaState is the order value one Worker has reserved and settled in
+// one settlement period (key (operator_address, period)). The quota of a
+// period is effective_active_bond * worker_quota_period_value_bps_of_bond /
+// 10000; a dispatch record whose maximum order value exceeds what is left is
+// refused, and the reservation shrinks to the actual value at task finality.
+type WorkerQuotaState struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	OperatorAddress string                 `protobuf:"bytes,1,opt,name=operator_address,json=operatorAddress,proto3" json:"operator_address,omitempty"`
+	Period          uint64                 `protobuf:"varint,2,opt,name=period,proto3" json:"period,omitempty"`
+	// Sum of the maximum order values of the period's tasks not final yet.
+	ReservedValue uint64 `protobuf:"varint,3,opt,name=reserved_value,json=reservedValue,proto3" json:"reserved_value,omitempty"`
+	// Sum of the actual order values of the period's final tasks.
+	SettledValue  uint64 `protobuf:"varint,4,opt,name=settled_value,json=settledValue,proto3" json:"settled_value,omitempty"`
+	UpdatedHeight uint64 `protobuf:"varint,5,opt,name=updated_height,json=updatedHeight,proto3" json:"updated_height,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *WorkerQuotaState) Reset() {
+	*x = WorkerQuotaState{}
+	mi := &file_hub_v1_service_bond_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *WorkerQuotaState) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*WorkerQuotaState) ProtoMessage() {}
+
+func (x *WorkerQuotaState) ProtoReflect() protoreflect.Message {
+	mi := &file_hub_v1_service_bond_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use WorkerQuotaState.ProtoReflect.Descriptor instead.
+func (*WorkerQuotaState) Descriptor() ([]byte, []int) {
+	return file_hub_v1_service_bond_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *WorkerQuotaState) GetOperatorAddress() string {
+	if x != nil {
+		return x.OperatorAddress
+	}
+	return ""
+}
+
+func (x *WorkerQuotaState) GetPeriod() uint64 {
+	if x != nil {
+		return x.Period
+	}
+	return 0
+}
+
+func (x *WorkerQuotaState) GetReservedValue() uint64 {
+	if x != nil {
+		return x.ReservedValue
+	}
+	return 0
+}
+
+func (x *WorkerQuotaState) GetSettledValue() uint64 {
+	if x != nil {
+		return x.SettledValue
+	}
+	return 0
+}
+
+func (x *WorkerQuotaState) GetUpdatedHeight() uint64 {
+	if x != nil {
+		return x.UpdatedHeight
+	}
+	return 0
+}
+
 // UnbondingState is one open or matured service unbonding entry (6.4).
 type UnbondingState struct {
 	state              protoimpl.MessageState `protogen:"open.v1"`
@@ -171,7 +285,7 @@ type UnbondingState struct {
 
 func (x *UnbondingState) Reset() {
 	*x = UnbondingState{}
-	mi := &file_hub_v1_service_bond_proto_msgTypes[1]
+	mi := &file_hub_v1_service_bond_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -183,7 +297,7 @@ func (x *UnbondingState) String() string {
 func (*UnbondingState) ProtoMessage() {}
 
 func (x *UnbondingState) ProtoReflect() protoreflect.Message {
-	mi := &file_hub_v1_service_bond_proto_msgTypes[1]
+	mi := &file_hub_v1_service_bond_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -196,7 +310,7 @@ func (x *UnbondingState) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UnbondingState.ProtoReflect.Descriptor instead.
 func (*UnbondingState) Descriptor() ([]byte, []int) {
-	return file_hub_v1_service_bond_proto_rawDescGZIP(), []int{1}
+	return file_hub_v1_service_bond_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *UnbondingState) GetUnbondingId() []byte {
@@ -265,7 +379,7 @@ type UnbondingReceiptState struct {
 
 func (x *UnbondingReceiptState) Reset() {
 	*x = UnbondingReceiptState{}
-	mi := &file_hub_v1_service_bond_proto_msgTypes[2]
+	mi := &file_hub_v1_service_bond_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -277,7 +391,7 @@ func (x *UnbondingReceiptState) String() string {
 func (*UnbondingReceiptState) ProtoMessage() {}
 
 func (x *UnbondingReceiptState) ProtoReflect() protoreflect.Message {
-	mi := &file_hub_v1_service_bond_proto_msgTypes[2]
+	mi := &file_hub_v1_service_bond_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -290,7 +404,7 @@ func (x *UnbondingReceiptState) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UnbondingReceiptState.ProtoReflect.Descriptor instead.
 func (*UnbondingReceiptState) Descriptor() ([]byte, []int) {
-	return file_hub_v1_service_bond_proto_rawDescGZIP(), []int{2}
+	return file_hub_v1_service_bond_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *UnbondingReceiptState) GetUnbondingId() []byte {
@@ -369,7 +483,7 @@ type TaskLiabilityReservationState struct {
 
 func (x *TaskLiabilityReservationState) Reset() {
 	*x = TaskLiabilityReservationState{}
-	mi := &file_hub_v1_service_bond_proto_msgTypes[3]
+	mi := &file_hub_v1_service_bond_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -381,7 +495,7 @@ func (x *TaskLiabilityReservationState) String() string {
 func (*TaskLiabilityReservationState) ProtoMessage() {}
 
 func (x *TaskLiabilityReservationState) ProtoReflect() protoreflect.Message {
-	mi := &file_hub_v1_service_bond_proto_msgTypes[3]
+	mi := &file_hub_v1_service_bond_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -394,7 +508,7 @@ func (x *TaskLiabilityReservationState) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TaskLiabilityReservationState.ProtoReflect.Descriptor instead.
 func (*TaskLiabilityReservationState) Descriptor() ([]byte, []int) {
-	return file_hub_v1_service_bond_proto_rawDescGZIP(), []int{3}
+	return file_hub_v1_service_bond_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *TaskLiabilityReservationState) GetSchemaVersion() uint32 {
@@ -478,7 +592,7 @@ var File_hub_v1_service_bond_proto protoreflect.FileDescriptor
 
 const file_hub_v1_service_bond_proto_rawDesc = "" +
 	"\n" +
-	"\x19hub/v1/service_bond.proto\x12\x06hub.v1\x1a\x13hub/v1/common.proto\x1a\x16shared/v1/common.proto\"\xc0\x04\n" +
+	"\x19hub/v1/service_bond.proto\x12\x06hub.v1\x1a\x13hub/v1/common.proto\x1a\x16shared/v1/common.proto\"\xc2\x05\n" +
 	"\x10ServiceBondState\x12)\n" +
 	"\x10operator_address\x18\x01 \x01(\tR\x0foperatorAddress\x12\x1f\n" +
 	"\vactive_bond\x18\x02 \x01(\x04R\n" +
@@ -494,7 +608,16 @@ const file_hub_v1_service_bond_proto_rawDesc = "" +
 	"\x1enormal_action_count_since_jail\x18\n" +
 	" \x01(\rR\x1anormalActionCountSinceJail\x12*\n" +
 	"\x11last_stake_height\x18\v \x01(\x04R\x0flastStakeHeight\x12.\n" +
-	"\x13last_unstake_height\x18\f \x01(\x04R\x11lastUnstakeHeight\"\xbf\x02\n" +
+	"\x13last_unstake_height\x18\f \x01(\x04R\x11lastUnstakeHeight\x122\n" +
+	"\x15bond_funder_addresses\x18\r \x03(\tR\x13bondFunderAddresses\x12'\n" +
+	"\x0fdispatch_paused\x18\x0e \x01(\bR\x0edispatchPaused\x12#\n" +
+	"\rpause_reasons\x18\x0f \x01(\rR\fpauseReasons\"\xc8\x01\n" +
+	"\x10WorkerQuotaState\x12)\n" +
+	"\x10operator_address\x18\x01 \x01(\tR\x0foperatorAddress\x12\x16\n" +
+	"\x06period\x18\x02 \x01(\x04R\x06period\x12%\n" +
+	"\x0ereserved_value\x18\x03 \x01(\x04R\rreservedValue\x12#\n" +
+	"\rsettled_value\x18\x04 \x01(\x04R\fsettledValue\x12%\n" +
+	"\x0eupdated_height\x18\x05 \x01(\x04R\rupdatedHeight\"\xbf\x02\n" +
 	"\x0eUnbondingState\x12!\n" +
 	"\funbonding_id\x18\x01 \x01(\fR\vunbondingId\x12)\n" +
 	"\x10operator_address\x18\x02 \x01(\tR\x0foperatorAddress\x12\x16\n" +
@@ -538,24 +661,25 @@ func file_hub_v1_service_bond_proto_rawDescGZIP() []byte {
 	return file_hub_v1_service_bond_proto_rawDescData
 }
 
-var file_hub_v1_service_bond_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
+var file_hub_v1_service_bond_proto_msgTypes = make([]protoimpl.MessageInfo, 5)
 var file_hub_v1_service_bond_proto_goTypes = []any{
 	(*ServiceBondState)(nil),              // 0: hub.v1.ServiceBondState
-	(*UnbondingState)(nil),                // 1: hub.v1.UnbondingState
-	(*UnbondingReceiptState)(nil),         // 2: hub.v1.UnbondingReceiptState
-	(*TaskLiabilityReservationState)(nil), // 3: hub.v1.TaskLiabilityReservationState
-	(ServiceBondStatus)(0),                // 4: hub.v1.ServiceBondStatus
-	(UnbondingStatus)(0),                  // 5: hub.v1.UnbondingStatus
-	(UnbondingReceiptTerminalStatus)(0),   // 6: hub.v1.UnbondingReceiptTerminalStatus
-	(v1.Duty)(0),                          // 7: shared.v1.Duty
-	(LiabilityStatus)(0),                  // 8: hub.v1.LiabilityStatus
+	(*WorkerQuotaState)(nil),              // 1: hub.v1.WorkerQuotaState
+	(*UnbondingState)(nil),                // 2: hub.v1.UnbondingState
+	(*UnbondingReceiptState)(nil),         // 3: hub.v1.UnbondingReceiptState
+	(*TaskLiabilityReservationState)(nil), // 4: hub.v1.TaskLiabilityReservationState
+	(ServiceBondStatus)(0),                // 5: hub.v1.ServiceBondStatus
+	(UnbondingStatus)(0),                  // 6: hub.v1.UnbondingStatus
+	(UnbondingReceiptTerminalStatus)(0),   // 7: hub.v1.UnbondingReceiptTerminalStatus
+	(v1.Duty)(0),                          // 8: shared.v1.Duty
+	(LiabilityStatus)(0),                  // 9: hub.v1.LiabilityStatus
 }
 var file_hub_v1_service_bond_proto_depIdxs = []int32{
-	4, // 0: hub.v1.ServiceBondState.status:type_name -> hub.v1.ServiceBondStatus
-	5, // 1: hub.v1.UnbondingState.status:type_name -> hub.v1.UnbondingStatus
-	6, // 2: hub.v1.UnbondingReceiptState.terminal_status:type_name -> hub.v1.UnbondingReceiptTerminalStatus
-	7, // 3: hub.v1.TaskLiabilityReservationState.duty:type_name -> shared.v1.Duty
-	8, // 4: hub.v1.TaskLiabilityReservationState.status:type_name -> hub.v1.LiabilityStatus
+	5, // 0: hub.v1.ServiceBondState.status:type_name -> hub.v1.ServiceBondStatus
+	6, // 1: hub.v1.UnbondingState.status:type_name -> hub.v1.UnbondingStatus
+	7, // 2: hub.v1.UnbondingReceiptState.terminal_status:type_name -> hub.v1.UnbondingReceiptTerminalStatus
+	8, // 3: hub.v1.TaskLiabilityReservationState.duty:type_name -> shared.v1.Duty
+	9, // 4: hub.v1.TaskLiabilityReservationState.status:type_name -> hub.v1.LiabilityStatus
 	5, // [5:5] is the sub-list for method output_type
 	5, // [5:5] is the sub-list for method input_type
 	5, // [5:5] is the sub-list for extension type_name
@@ -575,7 +699,7 @@ func file_hub_v1_service_bond_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_hub_v1_service_bond_proto_rawDesc), len(file_hub_v1_service_bond_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   4,
+			NumMessages:   5,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

@@ -755,8 +755,24 @@ type ServiceParamsV1 struct {
 	// Positive block delay for newly scheduled min_stake increases. Updating it
 	// never changes a pending_effective_height already stored on a model.
 	MinStakeGracePeriodBlocks uint64 `protobuf:"varint,22,opt,name=min_stake_grace_period_blocks,json=minStakeGracePeriodBlocks,proto3" json:"min_stake_grace_period_blocks,omitempty"`
-	unknownFields             protoimpl.UnknownFields
-	sizeCache                 protoimpl.SizeCache
+	// Documentation of how worker_bond_floor_by_tier was sized: the number of
+	// settlement periods of full-load revenue the floor stands for.
+	WorkerBondFloorRevenuePeriods uint32 `protobuf:"varint,23,opt,name=worker_bond_floor_revenue_periods,json=workerBondFloorRevenuePeriods,proto3" json:"worker_bond_floor_revenue_periods,omitempty"`
+	// Order value a Worker may have reserved in one settlement period, in basis
+	// points of its effective bond. Zero means no quota.
+	WorkerQuotaPeriodValueBpsOfBond uint32 `protobuf:"varint,24,opt,name=worker_quota_period_value_bps_of_bond,json=workerQuotaPeriodValueBpsOfBond,proto3" json:"worker_quota_period_value_bps_of_bond,omitempty"`
+	// A service unbonding request pauses dispatch to the operator at once.
+	StopDispatchOnUnbondRequest bool `protobuf:"varint,25,opt,name=stop_dispatch_on_unbond_request,json=stopDispatchOnUnbondRequest,proto3" json:"stop_dispatch_on_unbond_request,omitempty"`
+	// An unbonding matures only when the operator has no task without a final
+	// verdict, no unsettled batch and no audit awaiting a late submission.
+	UnbondRequiresNoOpenTasks bool `protobuf:"varint,26,opt,name=unbond_requires_no_open_tasks,json=unbondRequiresNoOpenTasks,proto3" json:"unbond_requires_no_open_tasks,omitempty"`
+	// An account, service address or key that belongs to a bonded consensus
+	// validator may not declare audit capability nor be drawn for a panel.
+	MinValidatorSeparation bool `protobuf:"varint,27,opt,name=min_validator_separation,json=minValidatorSeparation,proto3" json:"min_validator_separation,omitempty"`
+	// Minimum effective bond of a Worker dispatch candidate per resource tier.
+	WorkerBondFloorByTier []*WorkerBondFloorV1 `protobuf:"bytes,28,rep,name=worker_bond_floor_by_tier,json=workerBondFloorByTier,proto3" json:"worker_bond_floor_by_tier,omitempty"`
+	unknownFields         protoimpl.UnknownFields
+	sizeCache             protoimpl.SizeCache
 }
 
 func (x *ServiceParamsV1) Reset() {
@@ -943,6 +959,102 @@ func (x *ServiceParamsV1) GetMinStakeGracePeriodBlocks() uint64 {
 	return 0
 }
 
+func (x *ServiceParamsV1) GetWorkerBondFloorRevenuePeriods() uint32 {
+	if x != nil {
+		return x.WorkerBondFloorRevenuePeriods
+	}
+	return 0
+}
+
+func (x *ServiceParamsV1) GetWorkerQuotaPeriodValueBpsOfBond() uint32 {
+	if x != nil {
+		return x.WorkerQuotaPeriodValueBpsOfBond
+	}
+	return 0
+}
+
+func (x *ServiceParamsV1) GetStopDispatchOnUnbondRequest() bool {
+	if x != nil {
+		return x.StopDispatchOnUnbondRequest
+	}
+	return false
+}
+
+func (x *ServiceParamsV1) GetUnbondRequiresNoOpenTasks() bool {
+	if x != nil {
+		return x.UnbondRequiresNoOpenTasks
+	}
+	return false
+}
+
+func (x *ServiceParamsV1) GetMinValidatorSeparation() bool {
+	if x != nil {
+		return x.MinValidatorSeparation
+	}
+	return false
+}
+
+func (x *ServiceParamsV1) GetWorkerBondFloorByTier() []*WorkerBondFloorV1 {
+	if x != nil {
+		return x.WorkerBondFloorByTier
+	}
+	return nil
+}
+
+// WorkerBondFloorV1 is the minimum effective bond of a Worker serving Profiles
+// of one resource tier.
+type WorkerBondFloorV1 struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ResourceTier  uint32                 `protobuf:"varint,1,opt,name=resource_tier,json=resourceTier,proto3" json:"resource_tier,omitempty"`
+	MinBond       *v1.Amount             `protobuf:"bytes,2,opt,name=min_bond,json=minBond,proto3" json:"min_bond,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *WorkerBondFloorV1) Reset() {
+	*x = WorkerBondFloorV1{}
+	mi := &file_hub_v1_params_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *WorkerBondFloorV1) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*WorkerBondFloorV1) ProtoMessage() {}
+
+func (x *WorkerBondFloorV1) ProtoReflect() protoreflect.Message {
+	mi := &file_hub_v1_params_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use WorkerBondFloorV1.ProtoReflect.Descriptor instead.
+func (*WorkerBondFloorV1) Descriptor() ([]byte, []int) {
+	return file_hub_v1_params_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *WorkerBondFloorV1) GetResourceTier() uint32 {
+	if x != nil {
+		return x.ResourceTier
+	}
+	return 0
+}
+
+func (x *WorkerBondFloorV1) GetMinBond() *v1.Amount {
+	if x != nil {
+		return x.MinBond
+	}
+	return nil
+}
+
 // BuilderParamsV1 groups governed fixed-set and duty parameters.
 type BuilderParamsV1 struct {
 	state                                 protoimpl.MessageState `protogen:"open.v1"`
@@ -962,7 +1074,7 @@ type BuilderParamsV1 struct {
 
 func (x *BuilderParamsV1) Reset() {
 	*x = BuilderParamsV1{}
-	mi := &file_hub_v1_params_proto_msgTypes[7]
+	mi := &file_hub_v1_params_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -974,7 +1086,7 @@ func (x *BuilderParamsV1) String() string {
 func (*BuilderParamsV1) ProtoMessage() {}
 
 func (x *BuilderParamsV1) ProtoReflect() protoreflect.Message {
-	mi := &file_hub_v1_params_proto_msgTypes[7]
+	mi := &file_hub_v1_params_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -987,7 +1099,7 @@ func (x *BuilderParamsV1) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BuilderParamsV1.ProtoReflect.Descriptor instead.
 func (*BuilderParamsV1) Descriptor() ([]byte, []int) {
-	return file_hub_v1_params_proto_rawDescGZIP(), []int{7}
+	return file_hub_v1_params_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *BuilderParamsV1) GetBuilderSetCap() uint32 {
@@ -1076,7 +1188,7 @@ type RewardParamsV1 struct {
 
 func (x *RewardParamsV1) Reset() {
 	*x = RewardParamsV1{}
-	mi := &file_hub_v1_params_proto_msgTypes[8]
+	mi := &file_hub_v1_params_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1088,7 +1200,7 @@ func (x *RewardParamsV1) String() string {
 func (*RewardParamsV1) ProtoMessage() {}
 
 func (x *RewardParamsV1) ProtoReflect() protoreflect.Message {
-	mi := &file_hub_v1_params_proto_msgTypes[8]
+	mi := &file_hub_v1_params_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1101,7 +1213,7 @@ func (x *RewardParamsV1) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RewardParamsV1.ProtoReflect.Descriptor instead.
 func (*RewardParamsV1) Descriptor() ([]byte, []int) {
-	return file_hub_v1_params_proto_rawDescGZIP(), []int{8}
+	return file_hub_v1_params_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *RewardParamsV1) GetMaxOrderValueHistogramBuckets() uint32 {
@@ -1173,7 +1285,7 @@ type FreezeParamsV1 struct {
 
 func (x *FreezeParamsV1) Reset() {
 	*x = FreezeParamsV1{}
-	mi := &file_hub_v1_params_proto_msgTypes[9]
+	mi := &file_hub_v1_params_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1185,7 +1297,7 @@ func (x *FreezeParamsV1) String() string {
 func (*FreezeParamsV1) ProtoMessage() {}
 
 func (x *FreezeParamsV1) ProtoReflect() protoreflect.Message {
-	mi := &file_hub_v1_params_proto_msgTypes[9]
+	mi := &file_hub_v1_params_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1198,7 +1310,7 @@ func (x *FreezeParamsV1) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FreezeParamsV1.ProtoReflect.Descriptor instead.
 func (*FreezeParamsV1) Descriptor() ([]byte, []int) {
-	return file_hub_v1_params_proto_rawDescGZIP(), []int{9}
+	return file_hub_v1_params_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *FreezeParamsV1) GetFreezeRiskWindowBlocks() uint64 {
@@ -1294,7 +1406,7 @@ type TreasuryParamsV1 struct {
 
 func (x *TreasuryParamsV1) Reset() {
 	*x = TreasuryParamsV1{}
-	mi := &file_hub_v1_params_proto_msgTypes[10]
+	mi := &file_hub_v1_params_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1306,7 +1418,7 @@ func (x *TreasuryParamsV1) String() string {
 func (*TreasuryParamsV1) ProtoMessage() {}
 
 func (x *TreasuryParamsV1) ProtoReflect() protoreflect.Message {
-	mi := &file_hub_v1_params_proto_msgTypes[10]
+	mi := &file_hub_v1_params_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1319,7 +1431,7 @@ func (x *TreasuryParamsV1) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TreasuryParamsV1.ProtoReflect.Descriptor instead.
 func (*TreasuryParamsV1) Descriptor() ([]byte, []int) {
-	return file_hub_v1_params_proto_rawDescGZIP(), []int{10}
+	return file_hub_v1_params_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *TreasuryParamsV1) GetGovernanceActionReplayWindowBlocks() uint64 {
@@ -1384,7 +1496,7 @@ type ParameterBucketParamsV1 struct {
 
 func (x *ParameterBucketParamsV1) Reset() {
 	*x = ParameterBucketParamsV1{}
-	mi := &file_hub_v1_params_proto_msgTypes[11]
+	mi := &file_hub_v1_params_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1396,7 +1508,7 @@ func (x *ParameterBucketParamsV1) String() string {
 func (*ParameterBucketParamsV1) ProtoMessage() {}
 
 func (x *ParameterBucketParamsV1) ProtoReflect() protoreflect.Message {
-	mi := &file_hub_v1_params_proto_msgTypes[11]
+	mi := &file_hub_v1_params_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1409,7 +1521,7 @@ func (x *ParameterBucketParamsV1) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ParameterBucketParamsV1.ProtoReflect.Descriptor instead.
 func (*ParameterBucketParamsV1) Descriptor() ([]byte, []int) {
-	return file_hub_v1_params_proto_rawDescGZIP(), []int{11}
+	return file_hub_v1_params_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *ParameterBucketParamsV1) GetMaxParameterBucketEntries() uint32 {
@@ -1454,7 +1566,7 @@ type QueryEventParamsV1 struct {
 
 func (x *QueryEventParamsV1) Reset() {
 	*x = QueryEventParamsV1{}
-	mi := &file_hub_v1_params_proto_msgTypes[12]
+	mi := &file_hub_v1_params_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1466,7 +1578,7 @@ func (x *QueryEventParamsV1) String() string {
 func (*QueryEventParamsV1) ProtoMessage() {}
 
 func (x *QueryEventParamsV1) ProtoReflect() protoreflect.Message {
-	mi := &file_hub_v1_params_proto_msgTypes[12]
+	mi := &file_hub_v1_params_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1479,7 +1591,7 @@ func (x *QueryEventParamsV1) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QueryEventParamsV1.ProtoReflect.Descriptor instead.
 func (*QueryEventParamsV1) Descriptor() ([]byte, []int) {
-	return file_hub_v1_params_proto_rawDescGZIP(), []int{12}
+	return file_hub_v1_params_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *QueryEventParamsV1) GetMaxQueryPageTokenBytes() uint32 {
@@ -1533,7 +1645,7 @@ type PriceParamsV1 struct {
 
 func (x *PriceParamsV1) Reset() {
 	*x = PriceParamsV1{}
-	mi := &file_hub_v1_params_proto_msgTypes[13]
+	mi := &file_hub_v1_params_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1545,7 +1657,7 @@ func (x *PriceParamsV1) String() string {
 func (*PriceParamsV1) ProtoMessage() {}
 
 func (x *PriceParamsV1) ProtoReflect() protoreflect.Message {
-	mi := &file_hub_v1_params_proto_msgTypes[13]
+	mi := &file_hub_v1_params_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1558,7 +1670,7 @@ func (x *PriceParamsV1) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PriceParamsV1.ProtoReflect.Descriptor instead.
 func (*PriceParamsV1) Descriptor() ([]byte, []int) {
-	return file_hub_v1_params_proto_rawDescGZIP(), []int{13}
+	return file_hub_v1_params_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *PriceParamsV1) GetPriceStepPpm() uint32 {
@@ -1614,7 +1726,7 @@ type BeaconParamsV1 struct {
 
 func (x *BeaconParamsV1) Reset() {
 	*x = BeaconParamsV1{}
-	mi := &file_hub_v1_params_proto_msgTypes[14]
+	mi := &file_hub_v1_params_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1626,7 +1738,7 @@ func (x *BeaconParamsV1) String() string {
 func (*BeaconParamsV1) ProtoMessage() {}
 
 func (x *BeaconParamsV1) ProtoReflect() protoreflect.Message {
-	mi := &file_hub_v1_params_proto_msgTypes[14]
+	mi := &file_hub_v1_params_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1639,7 +1751,7 @@ func (x *BeaconParamsV1) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BeaconParamsV1.ProtoReflect.Descriptor instead.
 func (*BeaconParamsV1) Descriptor() ([]byte, []int) {
-	return file_hub_v1_params_proto_rawDescGZIP(), []int{14}
+	return file_hub_v1_params_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *BeaconParamsV1) GetBeaconRetentionBlocks() uint64 {
@@ -1703,7 +1815,7 @@ type Phase0ParamsV1 struct {
 
 func (x *Phase0ParamsV1) Reset() {
 	*x = Phase0ParamsV1{}
-	mi := &file_hub_v1_params_proto_msgTypes[15]
+	mi := &file_hub_v1_params_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1715,7 +1827,7 @@ func (x *Phase0ParamsV1) String() string {
 func (*Phase0ParamsV1) ProtoMessage() {}
 
 func (x *Phase0ParamsV1) ProtoReflect() protoreflect.Message {
-	mi := &file_hub_v1_params_proto_msgTypes[15]
+	mi := &file_hub_v1_params_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1728,7 +1840,7 @@ func (x *Phase0ParamsV1) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Phase0ParamsV1.ProtoReflect.Descriptor instead.
 func (*Phase0ParamsV1) Descriptor() ([]byte, []int) {
-	return file_hub_v1_params_proto_rawDescGZIP(), []int{15}
+	return file_hub_v1_params_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *Phase0ParamsV1) GetBusinessDenom() string {
@@ -1817,7 +1929,7 @@ type BridgeParamsV1 struct {
 
 func (x *BridgeParamsV1) Reset() {
 	*x = BridgeParamsV1{}
-	mi := &file_hub_v1_params_proto_msgTypes[16]
+	mi := &file_hub_v1_params_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1829,7 +1941,7 @@ func (x *BridgeParamsV1) String() string {
 func (*BridgeParamsV1) ProtoMessage() {}
 
 func (x *BridgeParamsV1) ProtoReflect() protoreflect.Message {
-	mi := &file_hub_v1_params_proto_msgTypes[16]
+	mi := &file_hub_v1_params_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1842,7 +1954,7 @@ func (x *BridgeParamsV1) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BridgeParamsV1.ProtoReflect.Descriptor instead.
 func (*BridgeParamsV1) Descriptor() ([]byte, []int) {
-	return file_hub_v1_params_proto_rawDescGZIP(), []int{16}
+	return file_hub_v1_params_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *BridgeParamsV1) GetBridgeLimitHardMax() *v1.Amount {
@@ -1968,7 +2080,7 @@ const file_hub_v1_params_proto_rawDesc = "" +
 	"0max_candidate_slot_binding_prune_items_per_block\x18\b \x01(\rR)maxCandidateSlotBindingPruneItemsPerBlock\x12J\n" +
 	"\"candidate_pool_query_default_limit\x18\t \x01(\rR\x1ecandidatePoolQueryDefaultLimit\x12D\n" +
 	"\x1fcandidate_pool_query_hard_limit\x18\n" +
-	" \x01(\rR\x1bcandidatePoolQueryHardLimit\"\xfe\f\n" +
+	" \x01(\rR\x1bcandidatePoolQueryHardLimit\"\xaf\x10\n" +
 	"\x0fServiceParamsV1\x12E\n" +
 	"\x1fservice_unbonding_period_blocks\x18\x01 \x01(\x04R\x1cserviceUnbondingPeriodBlocks\x12N\n" +
 	"$unbonding_slash_safety_margin_blocks\x18\x02 \x01(\x04R unbondingSlashSafetyMarginBlocks\x12S\n" +
@@ -1992,7 +2104,16 @@ const file_hub_v1_params_proto_rawDesc = "" +
 	"\x12min_task_liability\x18\x13 \x01(\v2\x11.shared.v1.AmountR\x10minTaskLiability\x12X\n" +
 	"*max_service_bond_effective_items_per_block\x18\x14 \x01(\rR$maxServiceBondEffectiveItemsPerBlock\x12H\n" +
 	"!task_liability_order_coverage_bps\x18\x15 \x01(\rR\x1dtaskLiabilityOrderCoverageBps\x12@\n" +
-	"\x1dmin_stake_grace_period_blocks\x18\x16 \x01(\x04R\x19minStakeGracePeriodBlocks\"\x99\x06\n" +
+	"\x1dmin_stake_grace_period_blocks\x18\x16 \x01(\x04R\x19minStakeGracePeriodBlocks\x12H\n" +
+	"!worker_bond_floor_revenue_periods\x18\x17 \x01(\rR\x1dworkerBondFloorRevenuePeriods\x12N\n" +
+	"%worker_quota_period_value_bps_of_bond\x18\x18 \x01(\rR\x1fworkerQuotaPeriodValueBpsOfBond\x12D\n" +
+	"\x1fstop_dispatch_on_unbond_request\x18\x19 \x01(\bR\x1bstopDispatchOnUnbondRequest\x12@\n" +
+	"\x1dunbond_requires_no_open_tasks\x18\x1a \x01(\bR\x19unbondRequiresNoOpenTasks\x128\n" +
+	"\x18min_validator_separation\x18\x1b \x01(\bR\x16minValidatorSeparation\x12S\n" +
+	"\x19worker_bond_floor_by_tier\x18\x1c \x03(\v2\x19.hub.v1.WorkerBondFloorV1R\x15workerBondFloorByTier\"f\n" +
+	"\x11WorkerBondFloorV1\x12#\n" +
+	"\rresource_tier\x18\x01 \x01(\rR\fresourceTier\x12,\n" +
+	"\bmin_bond\x18\x02 \x01(\v2\x11.shared.v1.AmountR\aminBond\"\x99\x06\n" +
 	"\x0fBuilderParamsV1\x12&\n" +
 	"\x0fbuilder_set_cap\x18\x01 \x01(\rR\rbuilderSetCap\x12B\n" +
 	"\x1ebuilder_set_update_lead_blocks\x18\x03 \x01(\x04R\x1abuilderSetUpdateLeadBlocks\x12Y\n" +
@@ -2091,7 +2212,7 @@ func file_hub_v1_params_proto_rawDescGZIP() []byte {
 	return file_hub_v1_params_proto_rawDescData
 }
 
-var file_hub_v1_params_proto_msgTypes = make([]protoimpl.MessageInfo, 17)
+var file_hub_v1_params_proto_msgTypes = make([]protoimpl.MessageInfo, 18)
 var file_hub_v1_params_proto_goTypes = []any{
 	(*HubParamsV2)(nil),             // 0: hub.v1.HubParamsV2
 	(*HubParamsMetaState)(nil),      // 1: hub.v1.HubParamsMetaState
@@ -2100,56 +2221,59 @@ var file_hub_v1_params_proto_goTypes = []any{
 	(*ModelParamsV1)(nil),           // 4: hub.v1.ModelParamsV1
 	(*CandidatePoolParamsV1)(nil),   // 5: hub.v1.CandidatePoolParamsV1
 	(*ServiceParamsV1)(nil),         // 6: hub.v1.ServiceParamsV1
-	(*BuilderParamsV1)(nil),         // 7: hub.v1.BuilderParamsV1
-	(*RewardParamsV1)(nil),          // 8: hub.v1.RewardParamsV1
-	(*FreezeParamsV1)(nil),          // 9: hub.v1.FreezeParamsV1
-	(*TreasuryParamsV1)(nil),        // 10: hub.v1.TreasuryParamsV1
-	(*ParameterBucketParamsV1)(nil), // 11: hub.v1.ParameterBucketParamsV1
-	(*QueryEventParamsV1)(nil),      // 12: hub.v1.QueryEventParamsV1
-	(*PriceParamsV1)(nil),           // 13: hub.v1.PriceParamsV1
-	(*BeaconParamsV1)(nil),          // 14: hub.v1.BeaconParamsV1
-	(*Phase0ParamsV1)(nil),          // 15: hub.v1.Phase0ParamsV1
-	(*BridgeParamsV1)(nil),          // 16: hub.v1.BridgeParamsV1
-	(*v1.ParserRefV1)(nil),          // 17: shared.v1.ParserRefV1
-	(*v1.Amount)(nil),               // 18: shared.v1.Amount
+	(*WorkerBondFloorV1)(nil),       // 7: hub.v1.WorkerBondFloorV1
+	(*BuilderParamsV1)(nil),         // 8: hub.v1.BuilderParamsV1
+	(*RewardParamsV1)(nil),          // 9: hub.v1.RewardParamsV1
+	(*FreezeParamsV1)(nil),          // 10: hub.v1.FreezeParamsV1
+	(*TreasuryParamsV1)(nil),        // 11: hub.v1.TreasuryParamsV1
+	(*ParameterBucketParamsV1)(nil), // 12: hub.v1.ParameterBucketParamsV1
+	(*QueryEventParamsV1)(nil),      // 13: hub.v1.QueryEventParamsV1
+	(*PriceParamsV1)(nil),           // 14: hub.v1.PriceParamsV1
+	(*BeaconParamsV1)(nil),          // 15: hub.v1.BeaconParamsV1
+	(*Phase0ParamsV1)(nil),          // 16: hub.v1.Phase0ParamsV1
+	(*BridgeParamsV1)(nil),          // 17: hub.v1.BridgeParamsV1
+	(*v1.ParserRefV1)(nil),          // 18: shared.v1.ParserRefV1
+	(*v1.Amount)(nil),               // 19: shared.v1.Amount
 }
 var file_hub_v1_params_proto_depIdxs = []int32{
 	2,  // 0: hub.v1.HubParamsV2.epoch:type_name -> hub.v1.EpochParamsV1
 	3,  // 1: hub.v1.HubParamsV2.support:type_name -> hub.v1.SupportParamsV1
 	5,  // 2: hub.v1.HubParamsV2.candidate_pool:type_name -> hub.v1.CandidatePoolParamsV1
 	6,  // 3: hub.v1.HubParamsV2.service:type_name -> hub.v1.ServiceParamsV1
-	7,  // 4: hub.v1.HubParamsV2.builder:type_name -> hub.v1.BuilderParamsV1
-	8,  // 5: hub.v1.HubParamsV2.reward:type_name -> hub.v1.RewardParamsV1
-	9,  // 6: hub.v1.HubParamsV2.freeze:type_name -> hub.v1.FreezeParamsV1
-	10, // 7: hub.v1.HubParamsV2.treasury:type_name -> hub.v1.TreasuryParamsV1
-	11, // 8: hub.v1.HubParamsV2.bucket:type_name -> hub.v1.ParameterBucketParamsV1
-	12, // 9: hub.v1.HubParamsV2.query_event:type_name -> hub.v1.QueryEventParamsV1
-	13, // 10: hub.v1.HubParamsV2.price:type_name -> hub.v1.PriceParamsV1
-	14, // 11: hub.v1.HubParamsV2.beacon:type_name -> hub.v1.BeaconParamsV1
-	15, // 12: hub.v1.HubParamsV2.phase0:type_name -> hub.v1.Phase0ParamsV1
-	16, // 13: hub.v1.HubParamsV2.bridge:type_name -> hub.v1.BridgeParamsV1
+	8,  // 4: hub.v1.HubParamsV2.builder:type_name -> hub.v1.BuilderParamsV1
+	9,  // 5: hub.v1.HubParamsV2.reward:type_name -> hub.v1.RewardParamsV1
+	10, // 6: hub.v1.HubParamsV2.freeze:type_name -> hub.v1.FreezeParamsV1
+	11, // 7: hub.v1.HubParamsV2.treasury:type_name -> hub.v1.TreasuryParamsV1
+	12, // 8: hub.v1.HubParamsV2.bucket:type_name -> hub.v1.ParameterBucketParamsV1
+	13, // 9: hub.v1.HubParamsV2.query_event:type_name -> hub.v1.QueryEventParamsV1
+	14, // 10: hub.v1.HubParamsV2.price:type_name -> hub.v1.PriceParamsV1
+	15, // 11: hub.v1.HubParamsV2.beacon:type_name -> hub.v1.BeaconParamsV1
+	16, // 12: hub.v1.HubParamsV2.phase0:type_name -> hub.v1.Phase0ParamsV1
+	17, // 13: hub.v1.HubParamsV2.bridge:type_name -> hub.v1.BridgeParamsV1
 	4,  // 14: hub.v1.HubParamsV2.model:type_name -> hub.v1.ModelParamsV1
-	17, // 15: hub.v1.ModelParamsV1.supported_tool_call_parsers:type_name -> shared.v1.ParserRefV1
-	17, // 16: hub.v1.ModelParamsV1.supported_reasoning_parsers:type_name -> shared.v1.ParserRefV1
-	18, // 17: hub.v1.ServiceParamsV1.service_bond_min_initial:type_name -> shared.v1.Amount
-	18, // 18: hub.v1.ServiceParamsV1.min_task_liability:type_name -> shared.v1.Amount
-	18, // 19: hub.v1.RewardParamsV1.order_value_bucket_boundaries:type_name -> shared.v1.Amount
-	18, // 20: hub.v1.RewardParamsV1.p30_bootstrap_order_value_floor:type_name -> shared.v1.Amount
-	18, // 21: hub.v1.RewardParamsV1.min_claim_amount:type_name -> shared.v1.Amount
-	18, // 22: hub.v1.TreasuryParamsV1.model_profile_registration_fee:type_name -> shared.v1.Amount
-	18, // 23: hub.v1.TreasuryParamsV1.profile_version_update_fee:type_name -> shared.v1.Amount
-	18, // 24: hub.v1.TreasuryParamsV1.treasury_spend_limit_per_proposal:type_name -> shared.v1.Amount
-	18, // 25: hub.v1.TreasuryParamsV1.treasury_spend_limit_per_epoch:type_name -> shared.v1.Amount
-	18, // 26: hub.v1.TreasuryParamsV1.treasury_spend_limit_per_recipient:type_name -> shared.v1.Amount
-	18, // 27: hub.v1.Phase0ParamsV1.epoch_block_reward:type_name -> shared.v1.Amount
-	18, // 28: hub.v1.BridgeParamsV1.bridge_limit_hard_max:type_name -> shared.v1.Amount
-	18, // 29: hub.v1.BridgeParamsV1.initial_inbound_limit_per_epoch:type_name -> shared.v1.Amount
-	18, // 30: hub.v1.BridgeParamsV1.initial_outbound_limit_per_epoch:type_name -> shared.v1.Amount
-	31, // [31:31] is the sub-list for method output_type
-	31, // [31:31] is the sub-list for method input_type
-	31, // [31:31] is the sub-list for extension type_name
-	31, // [31:31] is the sub-list for extension extendee
-	0,  // [0:31] is the sub-list for field type_name
+	18, // 15: hub.v1.ModelParamsV1.supported_tool_call_parsers:type_name -> shared.v1.ParserRefV1
+	18, // 16: hub.v1.ModelParamsV1.supported_reasoning_parsers:type_name -> shared.v1.ParserRefV1
+	19, // 17: hub.v1.ServiceParamsV1.service_bond_min_initial:type_name -> shared.v1.Amount
+	19, // 18: hub.v1.ServiceParamsV1.min_task_liability:type_name -> shared.v1.Amount
+	7,  // 19: hub.v1.ServiceParamsV1.worker_bond_floor_by_tier:type_name -> hub.v1.WorkerBondFloorV1
+	19, // 20: hub.v1.WorkerBondFloorV1.min_bond:type_name -> shared.v1.Amount
+	19, // 21: hub.v1.RewardParamsV1.order_value_bucket_boundaries:type_name -> shared.v1.Amount
+	19, // 22: hub.v1.RewardParamsV1.p30_bootstrap_order_value_floor:type_name -> shared.v1.Amount
+	19, // 23: hub.v1.RewardParamsV1.min_claim_amount:type_name -> shared.v1.Amount
+	19, // 24: hub.v1.TreasuryParamsV1.model_profile_registration_fee:type_name -> shared.v1.Amount
+	19, // 25: hub.v1.TreasuryParamsV1.profile_version_update_fee:type_name -> shared.v1.Amount
+	19, // 26: hub.v1.TreasuryParamsV1.treasury_spend_limit_per_proposal:type_name -> shared.v1.Amount
+	19, // 27: hub.v1.TreasuryParamsV1.treasury_spend_limit_per_epoch:type_name -> shared.v1.Amount
+	19, // 28: hub.v1.TreasuryParamsV1.treasury_spend_limit_per_recipient:type_name -> shared.v1.Amount
+	19, // 29: hub.v1.Phase0ParamsV1.epoch_block_reward:type_name -> shared.v1.Amount
+	19, // 30: hub.v1.BridgeParamsV1.bridge_limit_hard_max:type_name -> shared.v1.Amount
+	19, // 31: hub.v1.BridgeParamsV1.initial_inbound_limit_per_epoch:type_name -> shared.v1.Amount
+	19, // 32: hub.v1.BridgeParamsV1.initial_outbound_limit_per_epoch:type_name -> shared.v1.Amount
+	33, // [33:33] is the sub-list for method output_type
+	33, // [33:33] is the sub-list for method input_type
+	33, // [33:33] is the sub-list for extension type_name
+	33, // [33:33] is the sub-list for extension extendee
+	0,  // [0:33] is the sub-list for field type_name
 }
 
 func init() { file_hub_v1_params_proto_init() }
@@ -2163,7 +2287,7 @@ func file_hub_v1_params_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_hub_v1_params_proto_rawDesc), len(file_hub_v1_params_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   17,
+			NumMessages:   18,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

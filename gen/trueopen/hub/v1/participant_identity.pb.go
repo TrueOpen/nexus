@@ -38,6 +38,15 @@ const (
 	// Health probe HTTPS endpoint.
 	// SERVICE_ENDPOINT_KIND_HEALTH_HTTPS identifies the corresponding protocol value.
 	ServiceEndpointKind_SERVICE_ENDPOINT_KIND_HEALTH_HTTPS ServiceEndpointKind = 3
+	// Data-availability store a Worker serves its anchor audit material from
+	// (openings, proofs, epoch manifests). An http:// or https:// URL ending in
+	// "/"; it is used as a prefix of every location the Worker records for an
+	// audit sampled while this descriptor is current.
+	// SERVICE_ENDPOINT_KIND_ANCHOR_DA identifies the corresponding protocol value.
+	ServiceEndpointKind_SERVICE_ENDPOINT_KIND_ANCHOR_DA ServiceEndpointKind = 4
+	// Where a panel Verifier serves audit material to the other Verifiers of
+	// the same audit, by content hash. An http:// or https:// URL ending in "/".
+	ServiceEndpointKind_SERVICE_ENDPOINT_KIND_ANCHOR_RELAY ServiceEndpointKind = 5
 )
 
 // Enum value maps for ServiceEndpointKind.
@@ -47,12 +56,16 @@ var (
 		1: "SERVICE_ENDPOINT_KIND_NEXUS_GRPC",
 		2: "SERVICE_ENDPOINT_KIND_OBJECT_GATEWAY_HTTPS",
 		3: "SERVICE_ENDPOINT_KIND_HEALTH_HTTPS",
+		4: "SERVICE_ENDPOINT_KIND_ANCHOR_DA",
+		5: "SERVICE_ENDPOINT_KIND_ANCHOR_RELAY",
 	}
 	ServiceEndpointKind_value = map[string]int32{
 		"SERVICE_ENDPOINT_KIND_UNSPECIFIED":          0,
 		"SERVICE_ENDPOINT_KIND_NEXUS_GRPC":           1,
 		"SERVICE_ENDPOINT_KIND_OBJECT_GATEWAY_HTTPS": 2,
 		"SERVICE_ENDPOINT_KIND_HEALTH_HTTPS":         3,
+		"SERVICE_ENDPOINT_KIND_ANCHOR_DA":            4,
+		"SERVICE_ENDPOINT_KIND_ANCHOR_RELAY":         5,
 	}
 )
 
@@ -793,12 +806,14 @@ const file_hub_v1_participant_identity_proto_rawDesc = "" +
 	"\x12new_service_pubkey\x18\x04 \x01(\fR\x10newServicePubkey\x12G\n" +
 	" next_service_authorization_nonce\x18\x05 \x01(\x04R\x1dnextServiceAuthorizationNonce\x12+\n" +
 	"\x11registered_height\x18\x06 \x01(\x04R\x10registeredHeight\x12)\n" +
-	"\x10effective_height\x18\a \x01(\x04R\x0feffectiveHeightJ\x04\b\b\x10\tR\x19old_material_close_height*\xba\x01\n" +
+	"\x10effective_height\x18\a \x01(\x04R\x0feffectiveHeightJ\x04\b\b\x10\tR\x19old_material_close_height*\x87\x02\n" +
 	"\x13ServiceEndpointKind\x12%\n" +
 	"!SERVICE_ENDPOINT_KIND_UNSPECIFIED\x10\x00\x12$\n" +
 	" SERVICE_ENDPOINT_KIND_NEXUS_GRPC\x10\x01\x12.\n" +
 	"*SERVICE_ENDPOINT_KIND_OBJECT_GATEWAY_HTTPS\x10\x02\x12&\n" +
-	"\"SERVICE_ENDPOINT_KIND_HEALTH_HTTPS\x10\x03B5Z3github.com/TrueOpen/nexus/gen/trueopen/hub/v1;hubv1b\x06proto3"
+	"\"SERVICE_ENDPOINT_KIND_HEALTH_HTTPS\x10\x03\x12#\n" +
+	"\x1fSERVICE_ENDPOINT_KIND_ANCHOR_DA\x10\x04\x12&\n" +
+	"\"SERVICE_ENDPOINT_KIND_ANCHOR_RELAY\x10\x05B5Z3github.com/TrueOpen/nexus/gen/trueopen/hub/v1;hubv1b\x06proto3"
 
 var (
 	file_hub_v1_participant_identity_proto_rawDescOnce sync.Once

@@ -725,6 +725,108 @@ func (x *SignedOrderV2) GetSignatureChainId() uint64 {
 	return 0
 }
 
+// OrderInputTokensAttestationV1 is the user's signed statement of how many
+// input tokens an order has. TaskOrderV3 is a closed signed field list, so the
+// count travels beside the order instead of inside it: it is bound to the order
+// by order_digest and signed with the same key and scheme as the order
+// (domain TRUEOPEN_ORDER_INPUT_TOKENS_V1 over schema_version, chain_id,
+// order_digest and input_token_count). Absent means the user made no statement.
+type OrderInputTokensAttestationV1 struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Always 1.
+	SchemaVersion uint32 `protobuf:"varint,1,opt,name=schema_version,json=schemaVersion,proto3" json:"schema_version,omitempty"`
+	ChainId       string `protobuf:"bytes,2,opt,name=chain_id,json=chainId,proto3" json:"chain_id,omitempty"`
+	// Digest of the TaskOrderV3 the count belongs to.
+	OrderDigest []byte `protobuf:"bytes,3,opt,name=order_digest,json=orderDigest,proto3" json:"order_digest,omitempty"`
+	// Number of input tokens after the Profile's tokenizer and chat template.
+	InputTokenCount uint64 `protobuf:"varint,4,opt,name=input_token_count,json=inputTokenCount,proto3" json:"input_token_count,omitempty"`
+	// Same values as SignedOrderV2 of the order.
+	SignatureScheme  string `protobuf:"bytes,5,opt,name=signature_scheme,json=signatureScheme,proto3" json:"signature_scheme,omitempty"`
+	UserSignature    []byte `protobuf:"bytes,6,opt,name=user_signature,json=userSignature,proto3" json:"user_signature,omitempty"`
+	SignatureChainId uint64 `protobuf:"varint,7,opt,name=signature_chain_id,json=signatureChainId,proto3" json:"signature_chain_id,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *OrderInputTokensAttestationV1) Reset() {
+	*x = OrderInputTokensAttestationV1{}
+	mi := &file_task_v1_msg_assignment_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *OrderInputTokensAttestationV1) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*OrderInputTokensAttestationV1) ProtoMessage() {}
+
+func (x *OrderInputTokensAttestationV1) ProtoReflect() protoreflect.Message {
+	mi := &file_task_v1_msg_assignment_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use OrderInputTokensAttestationV1.ProtoReflect.Descriptor instead.
+func (*OrderInputTokensAttestationV1) Descriptor() ([]byte, []int) {
+	return file_task_v1_msg_assignment_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *OrderInputTokensAttestationV1) GetSchemaVersion() uint32 {
+	if x != nil {
+		return x.SchemaVersion
+	}
+	return 0
+}
+
+func (x *OrderInputTokensAttestationV1) GetChainId() string {
+	if x != nil {
+		return x.ChainId
+	}
+	return ""
+}
+
+func (x *OrderInputTokensAttestationV1) GetOrderDigest() []byte {
+	if x != nil {
+		return x.OrderDigest
+	}
+	return nil
+}
+
+func (x *OrderInputTokensAttestationV1) GetInputTokenCount() uint64 {
+	if x != nil {
+		return x.InputTokenCount
+	}
+	return 0
+}
+
+func (x *OrderInputTokensAttestationV1) GetSignatureScheme() string {
+	if x != nil {
+		return x.SignatureScheme
+	}
+	return ""
+}
+
+func (x *OrderInputTokensAttestationV1) GetUserSignature() []byte {
+	if x != nil {
+		return x.UserSignature
+	}
+	return nil
+}
+
+func (x *OrderInputTokensAttestationV1) GetSignatureChainId() uint64 {
+	if x != nil {
+		return x.SignatureChainId
+	}
+	return 0
+}
+
 // ExistingTaskRefV1 addresses an already accepted task for a follow-up proposal
 // (the wire API). task_hash is an immutable conflict guard and must equal the
 // authoritative task value.
@@ -739,7 +841,7 @@ type ExistingTaskRefV1 struct {
 
 func (x *ExistingTaskRefV1) Reset() {
 	*x = ExistingTaskRefV1{}
-	mi := &file_task_v1_msg_assignment_proto_msgTypes[5]
+	mi := &file_task_v1_msg_assignment_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -751,7 +853,7 @@ func (x *ExistingTaskRefV1) String() string {
 func (*ExistingTaskRefV1) ProtoMessage() {}
 
 func (x *ExistingTaskRefV1) ProtoReflect() protoreflect.Message {
-	mi := &file_task_v1_msg_assignment_proto_msgTypes[5]
+	mi := &file_task_v1_msg_assignment_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -764,7 +866,7 @@ func (x *ExistingTaskRefV1) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExistingTaskRefV1.ProtoReflect.Descriptor instead.
 func (*ExistingTaskRefV1) Descriptor() ([]byte, []int) {
-	return file_task_v1_msg_assignment_proto_rawDescGZIP(), []int{5}
+	return file_task_v1_msg_assignment_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *ExistingTaskRefV1) GetTaskId() []byte {
@@ -841,7 +943,15 @@ const file_task_v1_msg_assignment_proto_rawDesc = "" +
 	"\x05order\x18\x01 \x01(\v2\x14.task.v1.TaskOrderV3R\x05order\x12)\n" +
 	"\x10signature_scheme\x18\x02 \x01(\tR\x0fsignatureScheme\x12%\n" +
 	"\x0euser_signature\x18\x03 \x01(\fR\ruserSignature\x12,\n" +
-	"\x12signature_chain_id\x18\x04 \x01(\x04R\x10signatureChainId\"I\n" +
+	"\x12signature_chain_id\x18\x04 \x01(\x04R\x10signatureChainId\"\xb0\x02\n" +
+	"\x1dOrderInputTokensAttestationV1\x12%\n" +
+	"\x0eschema_version\x18\x01 \x01(\rR\rschemaVersion\x12\x19\n" +
+	"\bchain_id\x18\x02 \x01(\tR\achainId\x12!\n" +
+	"\forder_digest\x18\x03 \x01(\fR\vorderDigest\x12*\n" +
+	"\x11input_token_count\x18\x04 \x01(\x04R\x0finputTokenCount\x12)\n" +
+	"\x10signature_scheme\x18\x05 \x01(\tR\x0fsignatureScheme\x12%\n" +
+	"\x0euser_signature\x18\x06 \x01(\fR\ruserSignature\x12,\n" +
+	"\x12signature_chain_id\x18\a \x01(\x04R\x10signatureChainId\"I\n" +
 	"\x11ExistingTaskRefV1\x12\x17\n" +
 	"\atask_id\x18\x01 \x01(\fR\x06taskId\x12\x1b\n" +
 	"\ttask_hash\x18\x02 \x01(\fR\btaskHash*\xcc\x01\n" +
@@ -865,30 +975,31 @@ func file_task_v1_msg_assignment_proto_rawDescGZIP() []byte {
 }
 
 var file_task_v1_msg_assignment_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_task_v1_msg_assignment_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
+var file_task_v1_msg_assignment_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
 var file_task_v1_msg_assignment_proto_goTypes = []any{
-	(DeadlineLatencyClass)(0),  // 0: task.v1.DeadlineLatencyClass
-	(*DeadlinePolicyV1)(nil),   // 1: task.v1.DeadlinePolicyV1
-	(*DecodingParamsV1)(nil),   // 2: task.v1.DecodingParamsV1
-	(*GenerationParamsV1)(nil), // 3: task.v1.GenerationParamsV1
-	(*TaskOrderV3)(nil),        // 4: task.v1.TaskOrderV3
-	(*SignedOrderV2)(nil),      // 5: task.v1.SignedOrderV2
-	(*ExistingTaskRefV1)(nil),  // 6: task.v1.ExistingTaskRefV1
-	(v1.TaskType)(0),           // 7: shared.v1.TaskType
-	(*v1.Amount)(nil),          // 8: shared.v1.Amount
-	(PayloadModeV1)(0),         // 9: task.v1.PayloadModeV1
+	(DeadlineLatencyClass)(0),             // 0: task.v1.DeadlineLatencyClass
+	(*DeadlinePolicyV1)(nil),              // 1: task.v1.DeadlinePolicyV1
+	(*DecodingParamsV1)(nil),              // 2: task.v1.DecodingParamsV1
+	(*GenerationParamsV1)(nil),            // 3: task.v1.GenerationParamsV1
+	(*TaskOrderV3)(nil),                   // 4: task.v1.TaskOrderV3
+	(*SignedOrderV2)(nil),                 // 5: task.v1.SignedOrderV2
+	(*OrderInputTokensAttestationV1)(nil), // 6: task.v1.OrderInputTokensAttestationV1
+	(*ExistingTaskRefV1)(nil),             // 7: task.v1.ExistingTaskRefV1
+	(v1.TaskType)(0),                      // 8: shared.v1.TaskType
+	(*v1.Amount)(nil),                     // 9: shared.v1.Amount
+	(PayloadModeV1)(0),                    // 10: task.v1.PayloadModeV1
 }
 var file_task_v1_msg_assignment_proto_depIdxs = []int32{
 	0,  // 0: task.v1.DeadlinePolicyV1.latency_class:type_name -> task.v1.DeadlineLatencyClass
 	2,  // 1: task.v1.GenerationParamsV1.decoding_params:type_name -> task.v1.DecodingParamsV1
-	7,  // 2: task.v1.TaskOrderV3.task_type:type_name -> shared.v1.TaskType
+	8,  // 2: task.v1.TaskOrderV3.task_type:type_name -> shared.v1.TaskType
 	3,  // 3: task.v1.TaskOrderV3.generation_params:type_name -> task.v1.GenerationParamsV1
-	8,  // 4: task.v1.TaskOrderV3.price_bid:type_name -> shared.v1.Amount
-	8,  // 5: task.v1.TaskOrderV3.max_fee:type_name -> shared.v1.Amount
-	8,  // 6: task.v1.TaskOrderV3.assignment_priority_fee:type_name -> shared.v1.Amount
-	8,  // 7: task.v1.TaskOrderV3.tx_fee_reserve:type_name -> shared.v1.Amount
+	9,  // 4: task.v1.TaskOrderV3.price_bid:type_name -> shared.v1.Amount
+	9,  // 5: task.v1.TaskOrderV3.max_fee:type_name -> shared.v1.Amount
+	9,  // 6: task.v1.TaskOrderV3.assignment_priority_fee:type_name -> shared.v1.Amount
+	9,  // 7: task.v1.TaskOrderV3.tx_fee_reserve:type_name -> shared.v1.Amount
 	1,  // 8: task.v1.TaskOrderV3.deadline_policy:type_name -> task.v1.DeadlinePolicyV1
-	9,  // 9: task.v1.TaskOrderV3.payload_mode:type_name -> task.v1.PayloadModeV1
+	10, // 9: task.v1.TaskOrderV3.payload_mode:type_name -> task.v1.PayloadModeV1
 	4,  // 10: task.v1.SignedOrderV2.order:type_name -> task.v1.TaskOrderV3
 	11, // [11:11] is the sub-list for method output_type
 	11, // [11:11] is the sub-list for method input_type
@@ -910,7 +1021,7 @@ func file_task_v1_msg_assignment_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_task_v1_msg_assignment_proto_rawDesc), len(file_task_v1_msg_assignment_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   6,
+			NumMessages:   7,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

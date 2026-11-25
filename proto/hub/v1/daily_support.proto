@@ -26,6 +26,8 @@ message ModelCapabilityState {
   bool inference_capability = 4;
   bool verification_capability = 5;
   uint64 capability_version = 6;
+  // The operator may be drawn for Verifier panels of this model.
+  bool audit_capability = 7;
 }
 
 // ModelSupportRecheckCursorState resumes a bounded model support threshold

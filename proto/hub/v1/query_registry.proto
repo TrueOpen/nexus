@@ -173,6 +173,30 @@ message QueryServiceBondResponse {
   ServiceBondState bond = 1;
 }
 
+// QueryWorkerQuotaRequest selects one Worker; period zero means the current
+// settlement period.
+message QueryWorkerQuotaRequest {
+  string operator_address = 1;
+  uint64 period = 2;
+}
+
+// QueryWorkerQuotaResponse returns the period's quota and what is left of it.
+message QueryWorkerQuotaResponse {
+  uint64 period = 1;
+  // effective bond * worker_quota_period_value_bps_of_bond / 10000; zero when
+  // no quota is configured.
+  uint64 quota = 2;
+  uint64 reserved_value = 3;
+  uint64 settled_value = 4;
+  // quota - reserved_value - settled_value, floored at zero.
+  uint64 remaining = 5;
+  // Whether a quota is enforced at all.
+  bool enforced = 6;
+  // Mirrors ServiceBondState: a paused Worker gets no orders whatever is left.
+  bool dispatch_paused = 7;
+  uint32 pause_reasons = 8;
+}
+
 // QueryServiceUnbondingsRequest pages one operator status slice.
 message QueryServiceUnbondingsRequest {
   string operator_address = 1;
