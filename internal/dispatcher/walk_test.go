@@ -369,6 +369,49 @@ func TestRejectExemptionUsesTheBoundsOfTheProfileVersion(t *testing.T) {
 	}
 }
 
+// A Worker of a Profile with the anchor commitment refuses on the sum of the prompt (in tokens, by
+// bytes per token) and the output budget. The exemption has to test the same sum: an order under
+// both per-field bounds whose sum is above the sequence bound is exempt, one at the bound counts,
+// and a reject for any reason other than NO_CAPACITY always counts.
+func TestRejectExemptionCoversTheSequenceBound(t *testing.T) {
+	key := config.RejectRateExemptKey(testModel[:], 1)
+	for _, tc := range []struct {
+		name          string
+		bounds        config.RejectRateExemptBounds
+		maxOut, input uint64
+		reason        taskv1.DispatchRejectReasonV1
+		counted       bool
+	}{
+		{"under both field bounds, sum above the sequence bound", config.RejectRateExemptBounds{OutputTokens: 2048, InputBytes: 8192, SequenceTokens: 1500}, 200, 1400, 0, false},
+		{"sum at the sequence bound", config.RejectRateExemptBounds{OutputTokens: 2048, InputBytes: 8192, SequenceTokens: 1600}, 200, 1400, 0, true},
+		{"four bytes a token", config.RejectRateExemptBounds{SequenceTokens: 550, InputBytesPerToken: 4}, 200, 1401, 0, false},
+		{"four bytes a token, at the bound", config.RejectRateExemptBounds{SequenceTokens: 550, InputBytesPerToken: 4}, 200, 1400, 0, true},
+		{"only the sequence bound missing: the round-3 scenario still counts", config.RejectRateExemptBounds{OutputTokens: 2048, InputBytes: 8192}, 200, 1400, 0, true},
+		{"above a bound but not a NO_CAPACITY reject", config.RejectRateExemptBounds{SequenceTokens: 1500}, 200, 1400,
+			taskv1.DispatchRejectReasonV1_DISPATCH_REJECT_REASON_V1_PROFILE_UNAVAILABLE, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newEnv(t)
+			e.rejectReason = tc.reason
+			e.d.cfg.Dispatch.RejectRateExemptByProfile = map[string]config.RejectRateExemptBounds{key: tc.bounds}
+			e.orderTerms = func(o *taskv1.TaskOrderV3) {
+				o.GenerationParams = &taskv1.GenerationParamsV1{MaxOutputTokens: tc.maxOut}
+				o.InputSizeBytes = tc.input
+			}
+			s := e.session(0xaa, 0)
+			e.dispatch(e.order(s, 0, 1))
+			e.reject()
+			var want []outcomeCall
+			if tc.counted {
+				want = []outcomeCall{{op7, true}}
+			}
+			if got := e.handraises.outcomeCalls(); !reflect.DeepEqual(got, want) {
+				t.Fatalf("reject-rate outcomes = %v, want %v", got, want)
+			}
+		})
+	}
+}
+
 // More rejects and timeouts than max_skips end the order as NO_CAPACITY: its ledger entry fails and
 // its sequence stays unused.
 func TestSkipLimitIsNoCapacity(t *testing.T) {

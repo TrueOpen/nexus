@@ -1073,9 +1073,9 @@ func (f *taskFSM) receiptWaitsForDataReadyLocked() bool {
 	if f.dataReadyLocked() {
 		return false
 	}
-	if f.receiptHeldSince == 0 {
-		// Height 0 is "not observed yet": the hold then starts at the first height seen.
-		f.receiptHeldSince = max(f.observedHeight, 1)
+	if f.receiptHeldSince == 0 && f.observedHeight != 0 {
+		// Before a height is observed the hold has no start; it gets one at the first height.
+		f.receiptHeldSince = f.observedHeight
 		f.save()
 	}
 	if reason := f.receiptHoldOverLocked(); reason != "" {
@@ -1103,13 +1103,27 @@ func (f *taskFSM) receiptHoldOverLocked() string {
 		margin = defaultAnchorReceiptHoldDeadlineMargin
 	}
 	h := f.observedHeight
-	switch {
-	case f.receiptHeldSince != 0 && h >= f.receiptHeldSince+hold:
+	// On a network whose infer window is shorter than twice the margin, a fixed margin would
+	// end the hold the moment it begins. The margin is at most half of what was left of the
+	// window when the hold began, so the hold always covers the first half of it.
+	near := func(deadline uint64) (uint64, bool) {
+		if deadline == 0 {
+			return 0, false
+		}
+		m := margin
+		if f.receiptHeldSince != 0 && deadline > f.receiptHeldSince {
+			m = min(m, (deadline-f.receiptHeldSince)/2)
+		}
+		return m, h+m >= deadline
+	}
+	if f.receiptHeldSince != 0 && h >= f.receiptHeldSince+hold {
 		return fmt.Sprintf("held for %d blocks", h-f.receiptHeldSince)
-	case f.inferDeadlineHeight != 0 && h+margin >= f.inferDeadlineHeight:
-		return fmt.Sprintf("the infer deadline %d is within %d blocks", f.inferDeadlineHeight, margin)
-	case f.inferReceipt.ExpiryHeight != 0 && h+margin >= f.inferReceipt.ExpiryHeight:
-		return fmt.Sprintf("the receipt expires at %d, within %d blocks", f.inferReceipt.ExpiryHeight, margin)
+	}
+	if m, ok := near(f.inferDeadlineHeight); ok {
+		return fmt.Sprintf("the infer deadline %d is within %d blocks", f.inferDeadlineHeight, m)
+	}
+	if m, ok := near(f.inferReceipt.ExpiryHeight); ok {
+		return fmt.Sprintf("the receipt expires at %d, within %d blocks", f.inferReceipt.ExpiryHeight, m)
 	}
 	return ""
 }

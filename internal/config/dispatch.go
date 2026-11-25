@@ -167,6 +167,35 @@ const (
 type RejectRateExemptBounds struct {
 	OutputTokens uint64 `yaml:"output_tokens" json:"output_tokens"`
 	InputBytes   uint64 `yaml:"input_bytes" json:"input_bytes"`
+	// SequenceTokens bounds the longest sequence an order allows, the sum a Worker of a Profile
+	// with the anchor commitment refuses on: ceil(input_size_bytes / InputBytesPerToken) +
+	// max_output_tokens. InputBytesPerToken 0 is 1, the Worker's default. Without it an order
+	// under both per-field bounds whose sum is above a Worker's sequence limit still counts.
+	SequenceTokens     uint64 `yaml:"sequence_tokens" json:"sequence_tokens"`
+	InputBytesPerToken uint64 `yaml:"input_bytes_per_token" json:"input_bytes_per_token"`
+}
+
+// Exempts reports whether an order with these terms is above any bound that is set.
+func (b RejectRateExemptBounds) Exempts(maxOutputTokens, inputSizeBytes uint64) bool {
+	if b.OutputTokens != 0 && maxOutputTokens > b.OutputTokens {
+		return true
+	}
+	if b.InputBytes != 0 && inputSizeBytes > b.InputBytes {
+		return true
+	}
+	if b.SequenceTokens == 0 {
+		return false
+	}
+	per := b.InputBytesPerToken
+	if per == 0 {
+		per = 1
+	}
+	prompt := inputSizeBytes / per
+	if inputSizeBytes%per != 0 {
+		prompt++
+	}
+	total := prompt + maxOutputTokens
+	return total < prompt || total > b.SequenceTokens
 }
 
 // RejectRateExemptKey is the RejectRateExemptByProfile key of a Profile version.

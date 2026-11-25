@@ -159,6 +159,15 @@ dispatch:
   #   "f5977e825943568850ccc6ae6ef62ae52da04531eb05b7ba86feea4977cc99e1@2":
   #     output_tokens: 2048
   #     input_bytes: 8192
+  #     # A Worker of a Profile with the anchor commitment refuses on the sum
+  #     # ceil(input_size_bytes / input_bytes_per_token) + max_output_tokens (the longest
+  #     # sequence it can open an audit for). Set the same sum here, with the bytes-per-token
+  #     # value its Workers use (default 1), or orders under both bounds above still count.
+  #     sequence_tokens: 1500
+  #     input_bytes_per_token: 1
+  # With no bound set for a Profile version, EVERY refusal by a Worker for its own limits counts
+  # against it, and a sender of such orders can keep it suspended. Only NO_CAPACITY rejects are
+  # exempt; other reject reasons always count.
   # Share of TIMEOUT skips flagged by the public statistics; statistics only.
   builder_timeout_rate_threshold: 0.2
   # Gas limit of a dispatch record transaction: record_gas_base plus record_gas_per_entry per entry

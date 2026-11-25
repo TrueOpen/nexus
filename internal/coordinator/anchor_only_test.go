@@ -332,3 +332,51 @@ func TestRestoredAnchorReceiptIsNotRelayedBeforeTheChainIsRead(t *testing.T) {
 		}
 	}
 }
+
+// On a network whose infer window is shorter than the deadline margin (a devnet with a window of
+// 100 blocks against a margin of 200) the hold is not void: it covers the first half of what was
+// left of the window when it began.
+func TestAnchorReceiptHoldCoversHalfOfAShortInferWindow(t *testing.T) {
+	fx := newVerifierProposalFixture(t, "anchor-receipt-hold-short-window")
+	fx.fsm.mu.Lock()
+	fx.fsm.observedHeight = 150
+	fx.fsm.inferDeadlineHeight = 250 // 100 blocks left, default margin 200
+	fx.fsm.inferReceipt.ExpiryHeight = 1_000_000
+	fx.fsm.mu.Unlock()
+	holdAnchorReceipt(t, fx, true)
+	fx.fsm.onHeight(199)
+	waitDataReadyIdle(t, fx.fsm)
+	if n := fx.receiptsRelayed(); n != 0 {
+		t.Fatalf("relayed in the first half of a short window: %d", n)
+	}
+	fx.fsm.onHeight(200)
+	waitDataReadyIdle(t, fx.fsm)
+	if n := fx.receiptsRelayed(); n != 1 {
+		t.Fatalf("relays at half of the short window = %d, want 1", n)
+	}
+}
+
+// A hold that begins before any height was observed gets its start at the first height, not at
+// height 1 (which would end it at once on any chain past the hold length).
+func TestAnchorReceiptHoldStartsAtTheFirstObservedHeight(t *testing.T) {
+	fx := newVerifierProposalFixture(t, "anchor-receipt-hold-no-height")
+	fx.fsm.mu.Lock()
+	fx.fsm.observedHeight = 0
+	fx.fsm.receiptHoldBlocks = 40
+	fx.fsm.inferReceipt.ExpiryHeight = 1_000_000
+	fx.fsm.mu.Unlock()
+	holdAnchorReceipt(t, fx, true)
+	fx.fsm.onHeight(5000)
+	waitDataReadyIdle(t, fx.fsm)
+	fx.fsm.mu.Lock()
+	since := fx.fsm.receiptHeldSince
+	fx.fsm.mu.Unlock()
+	if since != 5000 || fx.receiptsRelayed() != 0 {
+		t.Fatalf("hold start = %d, relays = %d; want 5000 and none", since, fx.receiptsRelayed())
+	}
+	fx.fsm.onHeight(5040)
+	waitDataReadyIdle(t, fx.fsm)
+	if n := fx.receiptsRelayed(); n != 1 {
+		t.Fatalf("relays at the end of the hold = %d, want 1", n)
+	}
+}

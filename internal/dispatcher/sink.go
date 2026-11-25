@@ -211,7 +211,7 @@ func (d *Dispatcher) HandleDispatchReject(ctx context.Context, from dispatchstre
 		outcome = opsmetrics.OutcomeRejected
 	}
 	d.cfg.Metrics.Inc(opsmetrics.CounterSkips, opsmetrics.SkipRejected)
-	if d.overExemptBudget(o.signed.GetOrder()) {
+	if m.GetRejectReason() == taskv1.DispatchRejectReasonV1_DISPATCH_REJECT_REASON_V1_NO_CAPACITY && d.overExemptBudget(o.signed.GetOrder()) {
 		// Not a ticket the reject rate is measured on: the order asks for more than every Worker
 		// is expected to serve, so refusing it says nothing about the Worker.
 		d.cfg.Metrics.WorkerOutcome(a.Operator, a.Tier, opsmetrics.OutcomeRejectedOverExemptBudget)
@@ -228,11 +228,8 @@ func (d *Dispatcher) HandleDispatchReject(ctx context.Context, from dispatchstre
 // budget or its input size is more than every Worker of the network is expected to serve. Both are
 // fields of the user-signed order, so the Worker cannot claim the exemption for another order.
 func (d *Dispatcher) overExemptBudget(o *taskv1.TaskOrderV3) bool {
-	b := d.cfg.Dispatch.RejectRateExempt(o.GetModelId(), o.GetProfileVersion())
-	if b.OutputTokens != 0 && uint64(o.GetGenerationParams().GetMaxOutputTokens()) > b.OutputTokens {
-		return true
-	}
-	return b.InputBytes != 0 && o.GetInputSizeBytes() > b.InputBytes
+	return d.cfg.Dispatch.RejectRateExempt(o.GetModelId(), o.GetProfileVersion()).
+		Exempts(uint64(o.GetGenerationParams().GetMaxOutputTokens()), o.GetInputSizeBytes())
 }
 
 // HandleDispatchInputRequest serves the order's input to the Worker that won it: the request must
