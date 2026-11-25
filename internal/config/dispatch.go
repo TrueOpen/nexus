@@ -1,10 +1,12 @@
 package config
 
 import (
+	"encoding/hex"
 	"fmt"
 	"math"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -45,6 +47,25 @@ type DispatchConfig struct {
 	// GPURejectRateMinSamples is the fewest tickets inside the measuring window before a reject
 	// rate can suspend a Worker, so one early reject is not a 100% rate.
 	GPURejectRateMinSamples uint64 `yaml:"gpu_reject_rate_min_samples"`
+	// RejectRateExemptOutputTokens and RejectRateExemptInputBytes bound what every Worker of the
+	// network is expected to serve. A signed reject of an order whose max_output_tokens or
+	// input_size_bytes is above the bound is left out of the Worker's reject rate (numerator and
+	// denominator) and counted on its own in the public statistics: a Worker whose model service
+	// runs with a shorter context than the registered model allows must refuse such an order, and
+	// whoever sends them must not be able to get the Worker suspended. A Worker gains only the
+	// freedom to pick among orders above the bound; below it every reject counts as before. 0
+	// leaves the corresponding rule off. Every Builder of a network should run the same values.
+	RejectRateExemptOutputTokens uint64 `yaml:"reject_rate_exempt_output_tokens"`
+	RejectRateExemptInputBytes   uint64 `yaml:"reject_rate_exempt_input_bytes"`
+	// RejectRateExemptByProfile sets the two bounds for one Profile version, keyed
+	// "<model_id as 64 lowercase hex>@<profile_version>"; a version listed here does not use the
+	// two values above, even where its own value is 0 (no exemption). One pair for every model is
+	// either too high for a version served with a short context (orders between a Worker's limit
+	// and the bound still count against it) or too low for the others (any Worker may refuse
+	// every order above it at no cost), so the bound belongs to the Profile version: set it to
+	// what the Workers of that version are required to serve, and have them configure limits
+	// that are not below it. The bounds in effect are published in the public statistics.
+	RejectRateExemptByProfile map[string]RejectRateExemptBounds `yaml:"reject_rate_exempt_by_profile"`
 	// HandraiseIssuedHeightToleranceBlocks is how far above this Builder's chain height a standing
 	// handraise's issued_height may be: a Cortex that follows the chain more closely is not
 	// refused for this Builder's lag.
@@ -141,7 +162,74 @@ const (
 	maxRecordGasPerByte         = 100_000
 )
 
+// RejectRateExemptBounds are the reject-rate exemption bounds of one Profile version; 0 leaves
+// the corresponding rule off.
+type RejectRateExemptBounds struct {
+	OutputTokens uint64 `yaml:"output_tokens" json:"output_tokens"`
+	InputBytes   uint64 `yaml:"input_bytes" json:"input_bytes"`
+	// SequenceTokens bounds the longest sequence an order allows, the sum a Worker of a Profile
+	// with the anchor commitment refuses on: ceil(input_size_bytes / InputBytesPerToken) +
+	// max_output_tokens. InputBytesPerToken 0 is 1, the Worker's default. Without it an order
+	// under both per-field bounds whose sum is above a Worker's sequence limit still counts.
+	SequenceTokens     uint64 `yaml:"sequence_tokens" json:"sequence_tokens"`
+	InputBytesPerToken uint64 `yaml:"input_bytes_per_token" json:"input_bytes_per_token"`
+}
+
+// Exempts reports whether an order with these terms is above any bound that is set.
+func (b RejectRateExemptBounds) Exempts(maxOutputTokens, inputSizeBytes uint64) bool {
+	if b.OutputTokens != 0 && maxOutputTokens > b.OutputTokens {
+		return true
+	}
+	if b.InputBytes != 0 && inputSizeBytes > b.InputBytes {
+		return true
+	}
+	if b.SequenceTokens == 0 {
+		return false
+	}
+	per := b.InputBytesPerToken
+	if per == 0 {
+		per = 1
+	}
+	prompt := inputSizeBytes / per
+	if inputSizeBytes%per != 0 {
+		prompt++
+	}
+	total := prompt + maxOutputTokens
+	return total < prompt || total > b.SequenceTokens
+}
+
+// RejectRateExemptKey is the RejectRateExemptByProfile key of a Profile version.
+func RejectRateExemptKey(modelID []byte, profileVersion uint32) string {
+	return fmt.Sprintf("%x@%d", modelID, profileVersion)
+}
+
+// RejectRateExempt returns the exemption bounds for orders of a Profile version: its own entry
+// when it has one, otherwise the two values for every version.
+func (c DispatchConfig) RejectRateExempt(modelID []byte, profileVersion uint32) RejectRateExemptBounds {
+	if b, ok := c.RejectRateExemptByProfile[RejectRateExemptKey(modelID, profileVersion)]; ok {
+		return b
+	}
+	return RejectRateExemptBounds{OutputTokens: c.RejectRateExemptOutputTokens, InputBytes: c.RejectRateExemptInputBytes}
+}
+
+func validRejectRateExemptKey(key string) bool {
+	model, version, ok := strings.Cut(key, "@")
+	if !ok || len(model) != 64 || strings.ToLower(model) != model {
+		return false
+	}
+	if _, err := hex.DecodeString(model); err != nil {
+		return false
+	}
+	v, err := strconv.ParseUint(version, 10, 32)
+	return err == nil && v != 0 && strconv.FormatUint(v, 10) == version
+}
+
 func (c DispatchConfig) Validate() error {
+	for key := range c.RejectRateExemptByProfile {
+		if !validRejectRateExemptKey(key) {
+			return fmt.Errorf("dispatch reject_rate_exempt_by_profile key %q must be <model_id as 64 lowercase hex>@<profile_version>", key)
+		}
+	}
 	switch {
 	case c.HandraiseHeartbeatMs == 0 || c.HandraiseRootIntervalMs == 0:
 		return fmt.Errorf("dispatch handraise_heartbeat_ms and handraise_root_interval_ms must be positive")
@@ -237,6 +325,8 @@ func applyDispatchEnv(c *DispatchConfig) {
 	c.GPURejectRateThreshold = envFloat64("NEXUS_DISPATCH_GPU_REJECT_RATE_THRESHOLD", c.GPURejectRateThreshold)
 	c.GPURejectRateSuspensionBlocks = envUint64("NEXUS_DISPATCH_GPU_REJECT_RATE_SUSPENSION_BLOCKS", c.GPURejectRateSuspensionBlocks)
 	c.GPURejectRateMinSamples = envUint64("NEXUS_DISPATCH_GPU_REJECT_RATE_MIN_SAMPLES", c.GPURejectRateMinSamples)
+	c.RejectRateExemptOutputTokens = envUint64("NEXUS_DISPATCH_REJECT_RATE_EXEMPT_OUTPUT_TOKENS", c.RejectRateExemptOutputTokens)
+	c.RejectRateExemptInputBytes = envUint64("NEXUS_DISPATCH_REJECT_RATE_EXEMPT_INPUT_BYTES", c.RejectRateExemptInputBytes)
 	c.BuilderTimeoutRateThreshold = envFloat64("NEXUS_DISPATCH_BUILDER_TIMEOUT_RATE_THRESHOLD", c.BuilderTimeoutRateThreshold)
 	c.HandraiseIssuedHeightToleranceBlocks = envUint64("NEXUS_DISPATCH_HANDRAISE_ISSUED_HEIGHT_TOLERANCE_BLOCKS", c.HandraiseIssuedHeightToleranceBlocks)
 }

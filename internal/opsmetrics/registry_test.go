@@ -115,3 +115,20 @@ func TestSnapshotIsACopy(t *testing.T) {
 		t.Fatal("snapshot shares state with the registry")
 	}
 }
+
+// A reject of an order above the reject-rate exemption bounds is counted on its own and is in
+// neither rate's denominator.
+func TestRejectOverExemptBudgetIsOutsideTheRates(t *testing.T) {
+	r := New()
+	w := "cortex1"
+	r.WorkerOutcome(w, 0, OutcomeAccepted)
+	r.WorkerOutcome(w, 0, OutcomeRejectedOverExemptBudget)
+	r.WorkerOutcome(w, 0, OutcomeRejectedOverExemptBudget)
+	got := r.Snapshot().Workers[w]
+	if got.Received != 1 || got.Rejected != 0 || got.RejectedOverExemptBudget != 2 || got.ReceivedByTier[0] != 1 {
+		t.Fatalf("worker = %+v", got)
+	}
+	if got.RejectRate() != 0 {
+		t.Fatalf("reject rate = %v", got.RejectRate())
+	}
+}

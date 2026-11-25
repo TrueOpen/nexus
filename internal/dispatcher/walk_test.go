@@ -19,6 +19,7 @@ import (
 	taskv1 "github.com/TrueOpen/nexus/gen/trueopen/task/v1"
 	"github.com/TrueOpen/nexus/internal/attempt"
 	"github.com/TrueOpen/nexus/internal/chaincli"
+	"github.com/TrueOpen/nexus/internal/config"
 	"github.com/TrueOpen/nexus/internal/dispatchdraw"
 	"github.com/TrueOpen/nexus/internal/inflight"
 	"github.com/TrueOpen/nexus/internal/kv"
@@ -287,6 +288,127 @@ func TestRejectWithoutFreeSlotIsNotCounted(t *testing.T) {
 	e.handraises.setRoot(0xd2, 1, op1, op3, op7)
 	if free := e.d.slots.free(op7, e.handraises.current[op7]); free != 1 {
 		t.Fatalf("free after re-sign = %d", free)
+	}
+}
+
+// A signed reject of an order above the Builder's exemption bounds feeds neither the reject rate nor
+// its denominator, whatever the Worker's free slots; the walk goes on as for any reject. An order
+// at the bound, and any order while the rule is off, counts as before.
+func TestRejectOfAnOrderOverTheExemptBudgetIsNotCounted(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		exemptOut     uint64
+		exemptIn      uint64
+		maxOut, input uint64
+		counted       bool
+	}{
+		{"output budget above the bound", 4096, 0, 30744, 10, false},
+		{"output budget at the bound", 4096, 0, 4096, 10, true},
+		{"input above the bound", 0, 1 << 16, 24, 1<<16 + 1, false},
+		{"rule off", 0, 0, 30744, 1 << 20, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newEnv(t)
+			e.d.cfg.Dispatch.RejectRateExemptOutputTokens = tc.exemptOut
+			e.d.cfg.Dispatch.RejectRateExemptInputBytes = tc.exemptIn
+			e.orderTerms = func(o *taskv1.TaskOrderV3) {
+				o.GenerationParams = &taskv1.GenerationParamsV1{MaxOutputTokens: tc.maxOut}
+				o.InputSizeBytes = tc.input
+			}
+			s := e.session(0xaa, 0)
+			e.dispatch(e.order(s, 0, 1))
+			e.reject() // op7, rank 0
+			if got := operatorsOf(e.streams.offers()); !reflect.DeepEqual(got, []string{op7, op1}) {
+				t.Fatalf("the walk did not go on after the reject: offers = %v", got)
+			}
+			var want []outcomeCall
+			if tc.counted {
+				want = []outcomeCall{{op7, true}}
+			}
+			if got := e.handraises.outcomeCalls(); !reflect.DeepEqual(got, want) {
+				t.Fatalf("reject-rate outcomes = %v, want %v", got, want)
+			}
+		})
+	}
+}
+
+// The bounds of a Profile version listed in reject_rate_exempt_by_profile replace the two values for
+// every version: an order of that version above its own bound is exempt although it is below the
+// general one, and an order of it below its own bound counts although the general bound is lower.
+func TestRejectExemptionUsesTheBoundsOfTheProfileVersion(t *testing.T) {
+	key := config.RejectRateExemptKey(testModel[:], 1)
+	for _, tc := range []struct {
+		name    string
+		general uint64
+		own     uint64
+		maxOut  uint64
+		counted bool
+	}{
+		{"above the version's bound, below the general one", 8192, 4096, 5000, false},
+		{"below the version's bound, above the general one", 2048, 8192, 5000, true},
+		{"the version's entry switches the exemption off", 2048, 0, 5000, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newEnv(t)
+			e.d.cfg.Dispatch.RejectRateExemptOutputTokens = tc.general
+			e.d.cfg.Dispatch.RejectRateExemptByProfile = map[string]config.RejectRateExemptBounds{key: {OutputTokens: tc.own}}
+			e.orderTerms = func(o *taskv1.TaskOrderV3) {
+				o.GenerationParams = &taskv1.GenerationParamsV1{MaxOutputTokens: tc.maxOut}
+			}
+			s := e.session(0xaa, 0)
+			e.dispatch(e.order(s, 0, 1))
+			e.reject()
+			var want []outcomeCall
+			if tc.counted {
+				want = []outcomeCall{{op7, true}}
+			}
+			if got := e.handraises.outcomeCalls(); !reflect.DeepEqual(got, want) {
+				t.Fatalf("reject-rate outcomes = %v, want %v", got, want)
+			}
+		})
+	}
+}
+
+// A Worker of a Profile with the anchor commitment refuses on the sum of the prompt (in tokens, by
+// bytes per token) and the output budget. The exemption has to test the same sum: an order under
+// both per-field bounds whose sum is above the sequence bound is exempt, one at the bound counts,
+// and a reject for any reason other than NO_CAPACITY always counts.
+func TestRejectExemptionCoversTheSequenceBound(t *testing.T) {
+	key := config.RejectRateExemptKey(testModel[:], 1)
+	for _, tc := range []struct {
+		name          string
+		bounds        config.RejectRateExemptBounds
+		maxOut, input uint64
+		reason        taskv1.DispatchRejectReasonV1
+		counted       bool
+	}{
+		{"under both field bounds, sum above the sequence bound", config.RejectRateExemptBounds{OutputTokens: 2048, InputBytes: 8192, SequenceTokens: 1500}, 200, 1400, 0, false},
+		{"sum at the sequence bound", config.RejectRateExemptBounds{OutputTokens: 2048, InputBytes: 8192, SequenceTokens: 1600}, 200, 1400, 0, true},
+		{"four bytes a token", config.RejectRateExemptBounds{SequenceTokens: 550, InputBytesPerToken: 4}, 200, 1401, 0, false},
+		{"four bytes a token, at the bound", config.RejectRateExemptBounds{SequenceTokens: 550, InputBytesPerToken: 4}, 200, 1400, 0, true},
+		{"only the sequence bound missing: the round-3 scenario still counts", config.RejectRateExemptBounds{OutputTokens: 2048, InputBytes: 8192}, 200, 1400, 0, true},
+		{"above a bound but not a NO_CAPACITY reject", config.RejectRateExemptBounds{SequenceTokens: 1500}, 200, 1400,
+			taskv1.DispatchRejectReasonV1_DISPATCH_REJECT_REASON_V1_PROFILE_UNAVAILABLE, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newEnv(t)
+			e.rejectReason = tc.reason
+			e.d.cfg.Dispatch.RejectRateExemptByProfile = map[string]config.RejectRateExemptBounds{key: tc.bounds}
+			e.orderTerms = func(o *taskv1.TaskOrderV3) {
+				o.GenerationParams = &taskv1.GenerationParamsV1{MaxOutputTokens: tc.maxOut}
+				o.InputSizeBytes = tc.input
+			}
+			s := e.session(0xaa, 0)
+			e.dispatch(e.order(s, 0, 1))
+			e.reject()
+			var want []outcomeCall
+			if tc.counted {
+				want = []outcomeCall{{op7, true}}
+			}
+			if got := e.handraises.outcomeCalls(); !reflect.DeepEqual(got, want) {
+				t.Fatalf("reject-rate outcomes = %v, want %v", got, want)
+			}
+		})
 	}
 }
 

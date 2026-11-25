@@ -143,6 +143,31 @@ dispatch:
   gpu_reject_rate_suspension_blocks: 720
   # Fewest tickets inside the window before a reject rate can suspend a Worker.
   gpu_reject_rate_min_samples: 10
+  # What every Worker of the network is expected to serve. A signed reject of an order whose
+  # max_output_tokens or input_size_bytes is above the bound is left out of the Worker's reject
+  # rate and counted on its own (rejected_over_exempt_budget): a Worker whose model service has a
+  # shorter context than the registered model allows has to refuse such an order. 0 (the default)
+  # leaves the rule off. Every Builder of a network should run the same values, and a Worker's own
+  # limits should not be below them.
+  # reject_rate_exempt_output_tokens: 4096
+  # reject_rate_exempt_input_bytes: 65536
+  # The same two bounds for one Profile version, keyed "<model_id hex>@<profile_version>"; a
+  # version listed here does not use the two values above. Prefer this form: one pair for every
+  # model is too high for a version its Workers serve with a short context, or too low for the
+  # rest. The bounds in effect are published under gpu_reject_rate.exempt in /v1/dispatch/stats.
+  # reject_rate_exempt_by_profile:
+  #   "f5977e825943568850ccc6ae6ef62ae52da04531eb05b7ba86feea4977cc99e1@2":
+  #     output_tokens: 2048
+  #     input_bytes: 8192
+  #     # A Worker of a Profile with the anchor commitment refuses on the sum
+  #     # ceil(input_size_bytes / input_bytes_per_token) + max_output_tokens (the longest
+  #     # sequence it can open an audit for). Set the same sum here, with the bytes-per-token
+  #     # value its Workers use (default 1), or orders under both bounds above still count.
+  #     sequence_tokens: 1500
+  #     input_bytes_per_token: 1
+  # With no bound set for a Profile version, EVERY refusal by a Worker for its own limits counts
+  # against it, and a sender of such orders can keep it suspended. Only NO_CAPACITY rejects are
+  # exempt; other reject reasons always count.
   # Share of TIMEOUT skips flagged by the public statistics; statistics only.
   builder_timeout_rate_threshold: 0.2
   # Gas limit of a dispatch record transaction: record_gas_base plus record_gas_per_entry per entry

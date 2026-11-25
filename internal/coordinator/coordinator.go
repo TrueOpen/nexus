@@ -2130,6 +2130,9 @@ func (c *Coordinator) applyAuthoritativeTask(fsm *taskFSM, snapshot chaincli.OnC
 	}
 	if state == types.Assigned || state == types.Verifying {
 		c.limitAttemptUploads(fsm.sessionID, fsm.taskID, snapshot.Assignment.InferDeadlineHeight)
+		// The chain's view of the receipt is known from here on: a restored receipt it does
+		// not hold may be relayed again (anchorReceiptUnsentLocked).
+		fsm.receiptReconciled(snapshot.Assignment.InferDeadlineHeight)
 	}
 	// Assignment is settled only when the chain has actually fixed the verifier set; RECEIPT_COMMITTED also
 	// maps to Verifying, but Verifiers is empty then, and treating it as assignment would notify 0 verifiers.

@@ -80,6 +80,18 @@ type RejectRateRule struct {
 	Threshold        float64 `json:"threshold"`
 	SuspensionBlocks uint64  `json:"suspension_blocks"`
 	MinSamples       uint64  `json:"min_samples"`
+	// Exempt are the bounds above which a signed reject of an order is left out of the rate
+	// (counted per Worker as rejected_over_exempt_budget): Default for every Profile version
+	// without an entry of its own, ByProfile keyed "<model_id hex>@<profile_version>". A Worker
+	// can refuse orders above the bound of a version at no cost, and no others; its count of
+	// such refusals is in its statistics.
+	Exempt RejectRateExempt `json:"exempt"`
+}
+
+// RejectRateExempt are the reject-rate exemption bounds in effect; 0 is "no exemption".
+type RejectRateExempt struct {
+	Default   config.RejectRateExemptBounds            `json:"default"`
+	ByProfile map[string]config.RejectRateExemptBounds `json:"by_profile,omitempty"`
 }
 
 // PublicWorker is one Worker's tickets from this Builder. Received is the denominator of both
@@ -115,6 +127,12 @@ func BuildPublicStats(src PublicSources, now time.Time) PublicStats {
 		RejectRate: RejectRateRule{
 			Threshold: src.Dispatch.GPURejectRateThreshold, SuspensionBlocks: src.Dispatch.GPURejectRateSuspensionBlocks,
 			MinSamples: src.Dispatch.GPURejectRateMinSamples,
+			Exempt: RejectRateExempt{
+				Default: config.RejectRateExemptBounds{
+					OutputTokens: src.Dispatch.RejectRateExemptOutputTokens, InputBytes: src.Dispatch.RejectRateExemptInputBytes,
+				},
+				ByProfile: src.Dispatch.RejectRateExemptByProfile,
+			},
 		},
 		Skips: snap.Counters[opsmetrics.CounterSkips], Workers: map[string]PublicWorker{},
 	}

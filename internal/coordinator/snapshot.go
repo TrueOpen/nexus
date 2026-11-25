@@ -66,6 +66,9 @@ type taskSnapshot struct {
 	// ReceiptOnChain: the chain has accepted the InferReceipt. Must survive recovery, otherwise a restart would wait
 	// again for an event that will never come while the verify window is already open on-chain.
 	ReceiptOnChain bool `json:"receipt_on_chain,omitempty"`
+	// ReceiptHeldSince: the height an anchor-commitment receipt began waiting for this Builder's
+	// data-ready; the bounded hold counts from it across restarts.
+	ReceiptHeldSince uint64 `json:"receipt_held_since,omitempty"`
 	// AcceptedOutputHash / AcceptedReceiptHash: the chain's accepted receipt hashes, kept when
 	// this Builder did not receive the signed receipt.
 	AcceptedOutputHash  []byte `json:"accepted_output_hash,omitempty"`
@@ -150,6 +153,7 @@ func (f *taskFSM) saveWith(persist func(taskSnapshot) error) error {
 
 		OutputHash:          f.outputHash,
 		ReceiptOnChain:      f.receiptOnChain,
+		ReceiptHeldSince:    f.receiptHeldSince,
 		AcceptedOutputHash:  f.acceptedOutputHash,
 		AcceptedReceiptHash: f.acceptedReceiptHash,
 
@@ -257,6 +261,7 @@ func (f *taskFSM) restoreFrom(sn taskSnapshot) {
 	f.deadlines = sn.Deadlines
 	f.outputHash = sn.OutputHash
 	f.receiptOnChain = sn.ReceiptOnChain
+	f.receiptHeldSince = sn.ReceiptHeldSince
 	f.acceptedOutputHash = sn.AcceptedOutputHash
 	f.acceptedReceiptHash = sn.AcceptedReceiptHash
 	for _, operator := range sn.VerifierHandraisesProposed {
