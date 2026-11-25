@@ -63,6 +63,12 @@ const (
 	SkipTimeout         = "timeout"
 	SkipUnreachable     = "unreachable"
 	SkipRotationPending = "rotation_pending"
+	// SkipWorkerPaused counts members the chain has paused for dispatch (late submission
+	// pending, unbonding or jailed); their ticket times out unsent.
+	SkipWorkerPaused = "worker_paused"
+	// SkipWorkerQuota counts members whose remaining order quota of the period does not cover
+	// the order; their ticket times out unsent.
+	SkipWorkerQuota = "worker_quota"
 	// SkipNotInRoster counts drawn pool members passed over because the round's roster does not
 	// hold them; they are not attempts.
 	SkipNotInRoster = "not_in_roster"

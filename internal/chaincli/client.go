@@ -605,6 +605,7 @@ func (c *client) QueryProfile(ctx context.Context, modelID string, profileVersio
 		ModelID: modelID, ProfileVersion: profile.GetProfileVersion(), Status: profile.GetStatus().String(),
 		ChallengeOpenWindowBlocks: profile.GetChallengeOpenWindowBlocks(),
 		EvidenceSchemaHash:        hex.EncodeToString(profile.GetVerificationProfile().GetEvidenceSchemaHash()),
+		VerifyRatioBps:            profile.GetPricingProfile().GetVerifyRatioBps(),
 	}, nil
 }
 

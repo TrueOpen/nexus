@@ -566,6 +566,10 @@ func (d *Dispatcher) issue(ctx context.Context, o *order, cand dispatchdraw.Cand
 		skip = opsmetrics.SkipUnreachable
 	case d.cortexPending(ctx, operator, o.signed.GetOrder().GetEarliestSubmitHeight()):
 		skip = opsmetrics.SkipRotationPending
+	default:
+		// Last, so a member that is skipped anyway holds no quota. The hold covers the accept
+		// window; an accept extends it until the entry is recorded.
+		skip = d.quotaSkip(ctx, o, operator, time.Duration(timeoutMs)*time.Millisecond+quotaOfferMargin)
 	}
 	reachable := skip == ""
 	var newRound *roundState
@@ -762,6 +766,7 @@ func (d *Dispatcher) fail(o *order, reason error) done {
 	}
 	st.Phase, st.FailReason = phaseFailed, reason.Error()
 	o.parked = false
+	d.quotaRelease(st)
 	if err := d.saveWithEvidence(st); err != nil {
 		d.log.Error("failed dispatch not written", "session_id", st.SessionID, "order_sequence", st.Sequence, "err", err)
 	}
@@ -821,6 +826,7 @@ func (d *Dispatcher) onBound(ctx context.Context, sessionID, builder string, bou
 // Caller holds o.mu.
 func (d *Dispatcher) voidGeneration(ctx context.Context, o *order) {
 	st := o.st
+	d.quotaRelease(st)
 	if a := st.pending(); a != nil {
 		a.Outcome = outcomeVoided
 		if o.timer != nil {

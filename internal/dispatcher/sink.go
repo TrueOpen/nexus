@@ -155,6 +155,9 @@ func (d *Dispatcher) HandleDispatchAccept(ctx context.Context, from dispatchstre
 	if current, ok := d.cfg.Handraises.Current(a.Operator); ok {
 		d.slots.accepted(a.Operator, current)
 	}
+	if d.cfg.Quota != nil {
+		d.cfg.Quota.Extend(stateKey(st.SessionID, st.Sequence), quotaRecordHold)
+	}
 	d.recordOutcome(a, opsmetrics.OutcomeAccepted)
 	if !o.ticketAt.IsZero() {
 		d.cfg.Metrics.ObserveStage(opsmetrics.StageTicketToAccept, d.clock.Now().Sub(o.ticketAt))
