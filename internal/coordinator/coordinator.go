@@ -95,13 +95,17 @@ type Coordinator struct {
 	challenge       ChallengeQuerier
 	inferReceipts   InferReceiptQuerier
 	verifierWindows VerifierWindowQuerier
-	taskEvents      chaincli.TaskEventTracker
-	txQuery         TxQuerier
-	verifyState     VerifyStateQuerier
-	txConfirmPolicy TxConfirmPolicy
-	height          HeightQuerier
-	selection       BuilderSelectionQuerier
-	epochLength     atomic.Uint64
+	// panels reads the Verifier panel state of anchor audits (panel.go); nil, or a chain that
+	// does not serve the query, leaves anchor-only tasks exactly as before.
+	panels            AnchorPanelQuerier
+	panelsUnsupported atomic.Bool
+	taskEvents        chaincli.TaskEventTracker
+	txQuery           TxQuerier
+	verifyState       VerifyStateQuerier
+	txConfirmPolicy   TxConfirmPolicy
+	height            HeightQuerier
+	selection         BuilderSelectionQuerier
+	epochLength       atomic.Uint64
 	// epochTriedAt is when the epoch length was last read (UnixNano), for the retry pause.
 	epochTriedAt atomic.Int64
 	// epochUnsupported records that the epoch length cannot be read at all (the selection
@@ -361,6 +365,7 @@ func WithTaskQuerier(query TaskQuerier) Option {
 		c.challenge, _ = query.(ChallengeQuerier)
 		c.inferReceipts, _ = query.(InferReceiptQuerier)
 		c.verifierWindows, _ = query.(VerifierWindowQuerier)
+		c.panels, _ = query.(AnchorPanelQuerier)
 		c.verifyState, _ = query.(VerifyStateQuerier)
 	}
 }
@@ -453,6 +458,7 @@ func New(log *slog.Logger, chain chaincli.Client, rl relay.Custodian, store kv.S
 		reconcileRetryMax:  30 * time.Second,
 	}
 	c.verifierWindows, _ = chain.(VerifierWindowQuerier)
+	c.panels, _ = chain.(AnchorPanelQuerier)
 	if query, ok := chain.(TxQuerier); ok {
 		c.txQuery = query
 	}
@@ -2130,6 +2136,9 @@ func (c *Coordinator) applyAuthoritativeTask(fsm *taskFSM, snapshot chaincli.OnC
 	}
 	if state == types.Assigned || state == types.Verifying {
 		c.limitAttemptUploads(fsm.sessionID, fsm.taskID, snapshot.Assignment.InferDeadlineHeight)
+		// The chain's view of the receipt is known from here on: a restored receipt it does
+		// not hold may be relayed again (anchorReceiptUnsentLocked).
+		fsm.receiptReconciled(snapshot.Assignment.InferDeadlineHeight)
 	}
 	// Assignment is settled only when the chain has actually fixed the verifier set; RECEIPT_COMMITTED also
 	// maps to Verifying, but Verifiers is empty then, and treating it as assignment would notify 0 verifiers.
@@ -2158,6 +2167,9 @@ func (c *Coordinator) applyAuthoritativeTask(fsm *taskFSM, snapshot chaincli.OnC
 	fsm.reconcile(snapshot)
 	_ = fsm.save()
 	fsm.mu.Unlock()
+	// After the task's own facts: a panel round exists only for a task the chain verifies by the
+	// anchor audit alone, which reconcile has just established.
+	c.fillPanelRound(fsm)
 	c.reconcileSettleSelection(fsm)
 	if currentHeight, authoritative := c.currentChainHeight(); authoritative {
 		fsm.closeSettledAtHeight(currentHeight)

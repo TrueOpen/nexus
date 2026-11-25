@@ -427,4 +427,6 @@ message EventAnchorVerdictFinalized {
   uint64 reject_power = 5;
   uint64 total_power = 6;
   string reason = 7;
+  // unavailable_power is the voting power of UNAVAILABLE votes at the verdict.
+  uint64 unavailable_power = 8;
 }

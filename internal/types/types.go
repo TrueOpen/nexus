@@ -187,7 +187,11 @@ type Order struct {
 	// session_anchor_* / builder_set_* / generation_params, and its signature coverage differs).
 	// Empty = the SDK is still sending the legacy JSON envelope, in which case only the ExistingTaskRefV1
 	// branch is available. Stored as wire bytes so it survives JSON snapshotting intact.
-	SignedOrder             []byte
+	SignedOrder []byte
+	// InputTokensAttestation is the user's signed OrderInputTokensAttestationV1 for this order
+	// (wire bytes), as received beside it; empty when the SDK sent none. It is forwarded verbatim
+	// with the order's dispatch record.
+	InputTokensAttestation  []byte
 	RewardBucket            uint64
 	ProfileResourceTier     uint64
 	InferInputUnitPriceBid  uint64

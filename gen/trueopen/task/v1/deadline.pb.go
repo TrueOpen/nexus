@@ -81,6 +81,14 @@ const (
 	// Settlement is held until the anchor audit verdict is final (ADR-0040 v4);
 	// kind_priority 41. Values 14-17 belong to the Phase 1 dispatch contract.
 	DeadlineKindV1_DEADLINE_KIND_V1_ANCHOR_VERDICT DeadlineKindV1 = 18
+	// Vote deadline of a Verifier-panel round (anchor_audit_mode 2).
+	DeadlineKindV1_DEADLINE_KIND_V1_ANCHOR_PANEL_VOTE DeadlineKindV1 = 19
+	// End of the publication period of a provisional anchor verdict.
+	DeadlineKindV1_DEADLINE_KIND_V1_ANCHOR_PUBLICATION DeadlineKindV1 = 20
+	// End of the late-submission window after a Worker anchor timeout.
+	DeadlineKindV1_DEADLINE_KIND_V1_ANCHOR_LATE_WINDOW DeadlineKindV1 = 21
+	// Per-Worker batch settlement queue; EndBlock-only.
+	DeadlineKindV1_DEADLINE_KIND_V1_BATCH_SETTLEMENT DeadlineKindV1 = 22
 )
 
 // Enum value maps for DeadlineKindV1.
@@ -103,6 +111,10 @@ var (
 		16: "DEADLINE_KIND_V1_DISPATCH_COMPENSATION_REBUTTAL",
 		17: "DEADLINE_KIND_V1_TAKEOVER_ACTIVATION",
 		18: "DEADLINE_KIND_V1_ANCHOR_VERDICT",
+		19: "DEADLINE_KIND_V1_ANCHOR_PANEL_VOTE",
+		20: "DEADLINE_KIND_V1_ANCHOR_PUBLICATION",
+		21: "DEADLINE_KIND_V1_ANCHOR_LATE_WINDOW",
+		22: "DEADLINE_KIND_V1_BATCH_SETTLEMENT",
 	}
 	DeadlineKindV1_value = map[string]int32{
 		"DEADLINE_KIND_V1_UNSPECIFIED":                          0,
@@ -122,6 +134,10 @@ var (
 		"DEADLINE_KIND_V1_DISPATCH_COMPENSATION_REBUTTAL":       16,
 		"DEADLINE_KIND_V1_TAKEOVER_ACTIVATION":                  17,
 		"DEADLINE_KIND_V1_ANCHOR_VERDICT":                       18,
+		"DEADLINE_KIND_V1_ANCHOR_PANEL_VOTE":                    19,
+		"DEADLINE_KIND_V1_ANCHOR_PUBLICATION":                   20,
+		"DEADLINE_KIND_V1_ANCHOR_LATE_WINDOW":                   21,
+		"DEADLINE_KIND_V1_BATCH_SETTLEMENT":                     22,
 	}
 )
 
@@ -731,7 +747,7 @@ const file_task_v1_deadline_proto_rawDesc = "" +
 	"\x18MsgSweepDeadlineResponse\x12\x18\n" +
 	"\avisited\x18\x01 \x01(\rR\avisited\x12\x1a\n" +
 	"\badvanced\x18\x02 \x01(\rR\badvanced\x123\n" +
-	"\x06status\x18\x03 \x01(\x0e2\x1b.shared.v1.MutationStatusV1R\x06status*\xec\x05\n" +
+	"\x06status\x18\x03 \x01(\x0e2\x1b.shared.v1.MutationStatusV1R\x06status*\x8d\a\n" +
 	"\x0eDeadlineKindV1\x12 \n" +
 	"\x1cDEADLINE_KIND_V1_UNSPECIFIED\x10\x00\x12\"\n" +
 	"\x1eDEADLINE_KIND_V1_TASK_FINALITY\x10\x01\x12$\n" +
@@ -750,7 +766,11 @@ const file_task_v1_deadline_proto_rawDesc = "" +
 	",DEADLINE_KIND_V1_DISPATCH_CHALLENGE_RESPONSE\x10\x0f\x123\n" +
 	"/DEADLINE_KIND_V1_DISPATCH_COMPENSATION_REBUTTAL\x10\x10\x12(\n" +
 	"$DEADLINE_KIND_V1_TAKEOVER_ACTIVATION\x10\x11\x12#\n" +
-	"\x1fDEADLINE_KIND_V1_ANCHOR_VERDICT\x10\x12\"\x04\b\t\x10\t*\"DEADLINE_KIND_V1_WORKER_ASSIGNMENT*\xe5\x04\n" +
+	"\x1fDEADLINE_KIND_V1_ANCHOR_VERDICT\x10\x12\x12&\n" +
+	"\"DEADLINE_KIND_V1_ANCHOR_PANEL_VOTE\x10\x13\x12'\n" +
+	"#DEADLINE_KIND_V1_ANCHOR_PUBLICATION\x10\x14\x12'\n" +
+	"#DEADLINE_KIND_V1_ANCHOR_LATE_WINDOW\x10\x15\x12%\n" +
+	"!DEADLINE_KIND_V1_BATCH_SETTLEMENT\x10\x16\"\x04\b\t\x10\t*\"DEADLINE_KIND_V1_WORKER_ASSIGNMENT*\xe5\x04\n" +
 	"\x16DeadlineTransitionCode\x12(\n" +
 	"$DEADLINE_TRANSITION_CODE_UNSPECIFIED\x10\x00\x123\n" +
 	"/DEADLINE_TRANSITION_CODE_SESSION_ACTIVE_TO_IDLE\x10\x01\x123\n" +

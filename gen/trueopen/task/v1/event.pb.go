@@ -2713,16 +2713,18 @@ func (x *EventSessionKeyUpdated) GetSetHeight() uint64 {
 // EventAnchorVerdictFinalized is emitted when an anchor audit verdict becomes
 // final (ADR-0040 v4): by validator vote, or by the verdict deadline.
 type EventAnchorVerdictFinalized struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	TaskId        []byte                 `protobuf:"bytes,1,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
-	Verdict       AnchorVerdictV1        `protobuf:"varint,2,opt,name=verdict,proto3,enum=task.v1.AnchorVerdictV1" json:"verdict,omitempty"`
-	Source        AnchorResultSourceV1   `protobuf:"varint,3,opt,name=source,proto3,enum=task.v1.AnchorResultSourceV1" json:"source,omitempty"`
-	PassPower     uint64                 `protobuf:"varint,4,opt,name=pass_power,json=passPower,proto3" json:"pass_power,omitempty"`
-	RejectPower   uint64                 `protobuf:"varint,5,opt,name=reject_power,json=rejectPower,proto3" json:"reject_power,omitempty"`
-	TotalPower    uint64                 `protobuf:"varint,6,opt,name=total_power,json=totalPower,proto3" json:"total_power,omitempty"`
-	Reason        string                 `protobuf:"bytes,7,opt,name=reason,proto3" json:"reason,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state       protoimpl.MessageState `protogen:"open.v1"`
+	TaskId      []byte                 `protobuf:"bytes,1,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
+	Verdict     AnchorVerdictV1        `protobuf:"varint,2,opt,name=verdict,proto3,enum=task.v1.AnchorVerdictV1" json:"verdict,omitempty"`
+	Source      AnchorResultSourceV1   `protobuf:"varint,3,opt,name=source,proto3,enum=task.v1.AnchorResultSourceV1" json:"source,omitempty"`
+	PassPower   uint64                 `protobuf:"varint,4,opt,name=pass_power,json=passPower,proto3" json:"pass_power,omitempty"`
+	RejectPower uint64                 `protobuf:"varint,5,opt,name=reject_power,json=rejectPower,proto3" json:"reject_power,omitempty"`
+	TotalPower  uint64                 `protobuf:"varint,6,opt,name=total_power,json=totalPower,proto3" json:"total_power,omitempty"`
+	Reason      string                 `protobuf:"bytes,7,opt,name=reason,proto3" json:"reason,omitempty"`
+	// unavailable_power is the voting power of UNAVAILABLE votes at the verdict.
+	UnavailablePower uint64 `protobuf:"varint,8,opt,name=unavailable_power,json=unavailablePower,proto3" json:"unavailable_power,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *EventAnchorVerdictFinalized) Reset() {
@@ -2802,6 +2804,13 @@ func (x *EventAnchorVerdictFinalized) GetReason() string {
 		return x.Reason
 	}
 	return ""
+}
+
+func (x *EventAnchorVerdictFinalized) GetUnavailablePower() uint64 {
+	if x != nil {
+		return x.UnavailablePower
+	}
+	return 0
 }
 
 var File_task_v1_event_proto protoreflect.FileDescriptor
@@ -3036,7 +3045,7 @@ const file_task_v1_event_proto_rawDesc = "" +
 	"\x05spent\x18\x06 \x01(\v2\x11.shared.v1.AmountR\x05spent\x12\x1d\n" +
 	"\n" +
 	"set_height\x18\a \x01(\x04R\tsetHeightB\x17\n" +
-	"\x15_session_key_or_empty\"\x9c\x02\n" +
+	"\x15_session_key_or_empty\"\xc9\x02\n" +
 	"\x1bEventAnchorVerdictFinalized\x12\x17\n" +
 	"\atask_id\x18\x01 \x01(\fR\x06taskId\x122\n" +
 	"\averdict\x18\x02 \x01(\x0e2\x18.task.v1.AnchorVerdictV1R\averdict\x125\n" +
@@ -3046,7 +3055,8 @@ const file_task_v1_event_proto_rawDesc = "" +
 	"\freject_power\x18\x05 \x01(\x04R\vrejectPower\x12\x1f\n" +
 	"\vtotal_power\x18\x06 \x01(\x04R\n" +
 	"totalPower\x12\x16\n" +
-	"\x06reason\x18\a \x01(\tR\x06reason*\x8a\x01\n" +
+	"\x06reason\x18\a \x01(\tR\x06reason\x12+\n" +
+	"\x11unavailable_power\x18\b \x01(\x04R\x10unavailablePower*\x8a\x01\n" +
 	"\x12RevealPhaseTrigger\x12$\n" +
 	" REVEAL_PHASE_TRIGGER_UNSPECIFIED\x10\x00\x12$\n" +
 	" REVEAL_PHASE_TRIGGER_ALL_COMMITS\x10\x01\x12(\n" +

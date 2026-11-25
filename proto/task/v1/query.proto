@@ -3,6 +3,7 @@ syntax = "proto3";
 package task.v1;
 
 import "task/v1/anchor.proto";
+import "task/v1/anchor_panel.proto";
 import "task/v1/query_dispatch.proto";
 import "task/v1/query_session.proto";
 import "task/v1/query_settlement_build.proto";
@@ -44,6 +45,22 @@ service Query {
   rpc AnchorAuditsPending(QueryAnchorAuditsPendingRequest) returns (QueryAnchorAuditsPendingResponse);
   // AnchorVoteKey returns one validator's anchor vote delegation (ADR-0040 v6).
   rpc AnchorVoteKey(QueryAnchorVoteKeyRequest) returns (QueryAnchorVoteKeyResponse);
+  // AnchorPanelAssignments pages over the open panel rounds a Verifier must vote in.
+  rpc AnchorPanelAssignments(QueryAnchorPanelAssignmentsRequest) returns (QueryAnchorPanelAssignmentsResponse);
+  // AnchorAuditsUnderReview pages over selected panel-mode audits that are not final yet.
+  rpc AnchorAuditsUnderReview(QueryAnchorAuditsUnderReviewRequest) returns (QueryAnchorAuditsUnderReviewResponse);
+  // WorkerLateSubmissions lists a Worker's audits that await or carry a late submission.
+  rpc WorkerLateSubmissions(QueryWorkerLateSubmissionsRequest) returns (QueryWorkerLateSubmissionsResponse);
+  // WorkerBatch returns one Worker's settlement batch of one period.
+  rpc WorkerBatch(QueryWorkerBatchRequest) returns (QueryWorkerBatchResponse);
+  // WorkerBatches pages over one Worker's settlement batches, newest first.
+  rpc WorkerBatches(QueryWorkerBatchesRequest) returns (QueryWorkerBatchesResponse);
+  // WorkerBatchTasks pages over the member tasks of one batch.
+  rpc WorkerBatchTasks(QueryWorkerBatchTasksRequest) returns (QueryWorkerBatchTasksResponse);
+  // VerifierAuditStanding returns a Verifier's panel allowance, missed periods and suspension.
+  rpc VerifierAuditStanding(QueryVerifierAuditStandingRequest) returns (QueryVerifierAuditStandingResponse);
+  // AnchorBrake returns the per-model brake statistic of one period.
+  rpc AnchorBrake(QueryAnchorBrakeRequest) returns (QueryAnchorBrakeResponse);
   // WorkerEvidence returns one compact objective-evidence receipt.
   rpc WorkerEvidence(QueryWorkerEvidenceRequest) returns (QueryWorkerEvidenceResponse);
   // VerifierValueEvidence pages accepted compact receipts, ordered by position.

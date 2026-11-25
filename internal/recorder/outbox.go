@@ -41,6 +41,9 @@ type entry struct {
 	OrderExpire uint64 `json:"order_expire_height,omitempty"`
 	// Entry is the DispatchRecordEntryV1 as handed over; it is never built again.
 	Entry []byte `json:"entry"`
+	// InputTokens is the order's OrderInputTokensAttestationV1 (wire bytes) when the user supplied
+	// one; it travels in the same MsgRecordDispatch as the entry.
+	InputTokens []byte `json:"input_tokens_attestation,omitempty"`
 	// Tx is the hash of the transaction carrying the entry; empty while it waits for a block.
 	Tx string `json:"tx,omitempty"`
 	// Withdrawn is set when the winner ticket was voided after the entry was sent: its refusal is

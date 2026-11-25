@@ -46,6 +46,7 @@ import (
 	"github.com/TrueOpen/nexus/internal/opsmetrics"
 	"github.com/TrueOpen/nexus/internal/servicekey"
 	"github.com/TrueOpen/nexus/internal/types"
+	"github.com/TrueOpen/nexus/internal/workerquota"
 )
 
 var (
@@ -120,6 +121,20 @@ type Streams interface {
 	RTT(operator string) (time.Duration, bool)
 }
 
+// Quota is the Worker quota ledger (workerquota.Ledger).
+type Quota interface {
+	// Admit decides whether the order may be offered to operator and, if so, holds value for it.
+	Admit(ctx context.Context, operator, orderKey string, value uint64, hold time.Duration) workerquota.Decision
+	Extend(orderKey string, hold time.Duration)
+	Release(orderKey string)
+	Settle(orderKey string)
+}
+
+// Pricing reads PricingProfile.verify_ratio_bps of a Profile version.
+type Pricing interface {
+	VerifyRatioBps(ctx context.Context, modelID []byte, profileVersion uint32) (uint32, error)
+}
+
 // Handraises is the standing handraise registry.
 type Handraises interface {
 	LatestRoot() (*handraise.IssuedRoot, bool)
@@ -189,6 +204,9 @@ type Bundle struct {
 	Deadline       uint64
 	DeadlineBlocks uint64
 	Entry          *taskv1.DispatchEntryV1
+	// InputTokens is the user's signed input token count for the order (wire bytes), sent with the
+	// record when the user supplied one.
+	InputTokens []byte
 }
 
 // Recorder records accepted orders on chain.
@@ -261,6 +279,13 @@ type Config struct {
 	// Sync hands every stored change of an order to the other members of its Task Builders group;
 	// nil syncs nothing.
 	Sync OrderSync
+	// Quota is the Worker quota ledger: a member the chain paused, or whose remaining order quota
+	// of the settlement period does not cover the order, gets a ticket that times out unsent,
+	// like an unreachable member. nil checks nothing (the behaviour before Worker quotas).
+	Quota Quota
+	// Pricing gives a Profile's verify ratio for the order value the quota is charged with; nil,
+	// or a failed read, charges the largest value the order can have.
+	Pricing Pricing
 	// Metrics takes the stage timings, skips and Worker outcomes of the walk; nil keeps none.
 	Metrics *opsmetrics.Registry
 	// Draining reports the operator's drain: no new order is taken and no ticket issued,
@@ -505,6 +530,7 @@ func (d *Dispatcher) Dispatch(ctx context.Context, o types.Order) error {
 		prev := cloneState(existing.st)
 		st := existing.st
 		st.TaskID, st.TaskHash, st.SignedOrder = o.TaskID, o.TaskHash, o.SignedOrder
+		st.InputTokens = o.InputTokensAttestation
 		st.Phase, st.FailReason, st.NewRound = phaseDispatching, "", true
 		st.Accept, st.AcceptDigest, st.Record = nil, nil, nil
 		st.Windows = windows
@@ -522,7 +548,7 @@ func (d *Dispatcher) Dispatch(ctx context.Context, o types.Order) error {
 	} else {
 		st := &orderState{
 			SessionID: o.SessionID, Sequence: o.OrderSequence, TaskID: o.TaskID, TaskHash: o.TaskHash,
-			SignedOrder: o.SignedOrder, Phase: phaseDispatching, Windows: windows,
+			SignedOrder: o.SignedOrder, InputTokens: o.InputTokensAttestation, Phase: phaseDispatching, Windows: windows,
 		}
 		if err := saveStateDeferred(d.cfg.Store, st); err != nil {
 			return err
@@ -772,6 +798,7 @@ func (d *Dispatcher) Recorded(sessionID string, sequence, height uint64) error {
 	if err != nil {
 		return fmt.Errorf("delete dispatch state: %w", err)
 	}
+	d.quotaSettle(sessionID, sequence)
 	d.forget(o)
 	d.kickParked(sessionID)
 	return nil
@@ -800,6 +827,7 @@ func (d *Dispatcher) rejectAcceptedLocked(o *order, reason error) error {
 	}
 	o.st.Phase, o.st.FailReason = phaseFailed, reason.Error()
 	o.st.Accept, o.st.AcceptDigest, o.st.Record = nil, nil, nil
+	d.quotaRelease(o.st)
 	return d.saveWithEvidence(o.st)
 }
 

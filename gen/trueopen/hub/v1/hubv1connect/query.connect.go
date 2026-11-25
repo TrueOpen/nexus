@@ -59,6 +59,8 @@ const (
 	QueryCortexNodeProcedure = "/hub.v1.Query/CortexNode"
 	// QueryServiceBondProcedure is the fully-qualified name of the Query's ServiceBond RPC.
 	QueryServiceBondProcedure = "/hub.v1.Query/ServiceBond"
+	// QueryWorkerQuotaProcedure is the fully-qualified name of the Query's WorkerQuota RPC.
+	QueryWorkerQuotaProcedure = "/hub.v1.Query/WorkerQuota"
 	// QueryServiceUnbondingsProcedure is the fully-qualified name of the Query's ServiceUnbondings RPC.
 	QueryServiceUnbondingsProcedure = "/hub.v1.Query/ServiceUnbondings"
 	// QueryCurrentServiceKeyProcedure is the fully-qualified name of the Query's CurrentServiceKey RPC.
@@ -154,6 +156,8 @@ type QueryClient interface {
 	CortexNode(context.Context, *connect.Request[v1.QueryCortexNodeRequest]) (*connect.Response[v1.QueryCortexNodeResponse], error)
 	// ServiceBond returns the node's single service bond and reserved liability.
 	ServiceBond(context.Context, *connect.Request[v1.QueryServiceBondRequest]) (*connect.Response[v1.QueryServiceBondResponse], error)
+	// WorkerQuota returns the order quota of one Worker for the current settlement period.
+	WorkerQuota(context.Context, *connect.Request[v1.QueryWorkerQuotaRequest]) (*connect.Response[v1.QueryWorkerQuotaResponse], error)
 	// ServiceUnbondings pages one operator's unbonding entries by status.
 	ServiceUnbondings(context.Context, *connect.Request[v1.QueryServiceUnbondingsRequest]) (*connect.Response[v1.QueryServiceUnbondingsResponse], error)
 	// CurrentServiceKey returns the sole current key binding for one operator,
@@ -296,6 +300,12 @@ func NewQueryClient(httpClient connect.HTTPClient, baseURL string, opts ...conne
 			httpClient,
 			baseURL+QueryServiceBondProcedure,
 			connect.WithSchema(queryMethods.ByName("ServiceBond")),
+			connect.WithClientOptions(opts...),
+		),
+		workerQuota: connect.NewClient[v1.QueryWorkerQuotaRequest, v1.QueryWorkerQuotaResponse](
+			httpClient,
+			baseURL+QueryWorkerQuotaProcedure,
+			connect.WithSchema(queryMethods.ByName("WorkerQuota")),
 			connect.WithClientOptions(opts...),
 		),
 		serviceUnbondings: connect.NewClient[v1.QueryServiceUnbondingsRequest, v1.QueryServiceUnbondingsResponse](
@@ -454,6 +464,7 @@ type queryClient struct {
 	profile                     *connect.Client[v1.QueryProfileRequest, v1.QueryProfileResponse]
 	cortexNode                  *connect.Client[v1.QueryCortexNodeRequest, v1.QueryCortexNodeResponse]
 	serviceBond                 *connect.Client[v1.QueryServiceBondRequest, v1.QueryServiceBondResponse]
+	workerQuota                 *connect.Client[v1.QueryWorkerQuotaRequest, v1.QueryWorkerQuotaResponse]
 	serviceUnbondings           *connect.Client[v1.QueryServiceUnbondingsRequest, v1.QueryServiceUnbondingsResponse]
 	currentServiceKey           *connect.Client[v1.QueryCurrentServiceKeyRequest, v1.QueryCurrentServiceKeyResponse]
 	serviceDescriptor           *connect.Client[v1.QueryServiceDescriptorRequest, v1.QueryServiceDescriptorResponse]
@@ -542,6 +553,11 @@ func (c *queryClient) CortexNode(ctx context.Context, req *connect.Request[v1.Qu
 // ServiceBond calls hub.v1.Query.ServiceBond.
 func (c *queryClient) ServiceBond(ctx context.Context, req *connect.Request[v1.QueryServiceBondRequest]) (*connect.Response[v1.QueryServiceBondResponse], error) {
 	return c.serviceBond.CallUnary(ctx, req)
+}
+
+// WorkerQuota calls hub.v1.Query.WorkerQuota.
+func (c *queryClient) WorkerQuota(ctx context.Context, req *connect.Request[v1.QueryWorkerQuotaRequest]) (*connect.Response[v1.QueryWorkerQuotaResponse], error) {
+	return c.workerQuota.CallUnary(ctx, req)
 }
 
 // ServiceUnbondings calls hub.v1.Query.ServiceUnbondings.
@@ -698,6 +714,8 @@ type QueryHandler interface {
 	CortexNode(context.Context, *connect.Request[v1.QueryCortexNodeRequest]) (*connect.Response[v1.QueryCortexNodeResponse], error)
 	// ServiceBond returns the node's single service bond and reserved liability.
 	ServiceBond(context.Context, *connect.Request[v1.QueryServiceBondRequest]) (*connect.Response[v1.QueryServiceBondResponse], error)
+	// WorkerQuota returns the order quota of one Worker for the current settlement period.
+	WorkerQuota(context.Context, *connect.Request[v1.QueryWorkerQuotaRequest]) (*connect.Response[v1.QueryWorkerQuotaResponse], error)
 	// ServiceUnbondings pages one operator's unbonding entries by status.
 	ServiceUnbondings(context.Context, *connect.Request[v1.QueryServiceUnbondingsRequest]) (*connect.Response[v1.QueryServiceUnbondingsResponse], error)
 	// CurrentServiceKey returns the sole current key binding for one operator,
@@ -836,6 +854,12 @@ func NewQueryHandler(svc QueryHandler, opts ...connect.HandlerOption) (string, h
 		QueryServiceBondProcedure,
 		svc.ServiceBond,
 		connect.WithSchema(queryMethods.ByName("ServiceBond")),
+		connect.WithHandlerOptions(opts...),
+	)
+	queryWorkerQuotaHandler := connect.NewUnaryHandler(
+		QueryWorkerQuotaProcedure,
+		svc.WorkerQuota,
+		connect.WithSchema(queryMethods.ByName("WorkerQuota")),
 		connect.WithHandlerOptions(opts...),
 	)
 	queryServiceUnbondingsHandler := connect.NewUnaryHandler(
@@ -1004,6 +1028,8 @@ func NewQueryHandler(svc QueryHandler, opts ...connect.HandlerOption) (string, h
 			queryCortexNodeHandler.ServeHTTP(w, r)
 		case QueryServiceBondProcedure:
 			queryServiceBondHandler.ServeHTTP(w, r)
+		case QueryWorkerQuotaProcedure:
+			queryWorkerQuotaHandler.ServeHTTP(w, r)
 		case QueryServiceUnbondingsProcedure:
 			queryServiceUnbondingsHandler.ServeHTTP(w, r)
 		case QueryCurrentServiceKeyProcedure:
@@ -1109,6 +1135,10 @@ func (UnimplementedQueryHandler) CortexNode(context.Context, *connect.Request[v1
 
 func (UnimplementedQueryHandler) ServiceBond(context.Context, *connect.Request[v1.QueryServiceBondRequest]) (*connect.Response[v1.QueryServiceBondResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("hub.v1.Query.ServiceBond is not implemented"))
+}
+
+func (UnimplementedQueryHandler) WorkerQuota(context.Context, *connect.Request[v1.QueryWorkerQuotaRequest]) (*connect.Response[v1.QueryWorkerQuotaResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("hub.v1.Query.WorkerQuota is not implemented"))
 }
 
 func (UnimplementedQueryHandler) ServiceUnbondings(context.Context, *connect.Request[v1.QueryServiceUnbondingsRequest]) (*connect.Response[v1.QueryServiceUnbondingsResponse], error) {

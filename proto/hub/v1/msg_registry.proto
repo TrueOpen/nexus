@@ -125,6 +125,11 @@ message MsgDeclareModelSupport {
   bytes model_id = 2;
   bool inference_capability = 4;
   bool verification_capability = 5;
+  // The operator audits anchor proofs of this model on a Verifier panel. It
+  // needs neither a GPU nor verification_capability. Refused for an account,
+  // service address or key of a bonded consensus validator when
+  // min_validator_separation is set.
+  bool audit_capability = 6;
 }
 
 // MsgDeclareModelSupportResponse echoes the declared support row and version.

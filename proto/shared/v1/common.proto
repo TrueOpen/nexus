@@ -194,4 +194,8 @@ enum FaultKind {
   FAULT_KIND_WORKER_DISPATCH_INELIGIBLE = 8;
   // Worker signs both reject and accept for the same ticket.
   FAULT_KIND_WORKER_DISPATCH_CONTRADICTION = 9;
+  // A panel Verifier missed its votes in too many settlement periods.
+  FAULT_KIND_ANCHOR_VERIFIER_MISSED = 10;
+  // A panel Verifier's PASS or REJECT is the opposite of the final verdict.
+  FAULT_KIND_ANCHOR_VERIFIER_WRONG_VOTE = 11;
 }

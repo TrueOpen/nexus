@@ -118,6 +118,65 @@ message VerificationParamsV1 {
   uint64 anchor_proof_window_blocks = 12;
   // Basis points of D taken when the Worker never opened or never proved by the deadline.
   uint32 anchor_timeout_slash_bps = 13;
+
+  // Fields 14-17 are left to the content-track contract. Fields 18-41 are all
+  // zero by default; zero keeps the behaviour of a chain that does not set
+  // them. Recommended values are in the changelog and in node's Recommended*
+  // constants; a network opts in through genesis or governance.
+
+  // Who audits a selected anchor task, frozen into each task at acceptance:
+  // 0 and 1 = consensus-validator vote, 2 = Verifier panel.
+  uint32 anchor_audit_mode = 18;
+  // Verifiers drawn per panel round and equal votes that decide it.
+  uint32 anchor_panel_size = 19;
+  uint32 anchor_panel_threshold = 20;
+  // Blocks after the draw within which a panel member's vote is accepted.
+  uint64 anchor_panel_vote_window_blocks = 21;
+  // Publication period of a provisional verdict; a re-audit may be requested in it.
+  uint64 anchor_publication_window_blocks = 22;
+  // Blocks after a Worker timeout within which a late submission is accepted.
+  uint64 anchor_late_window_blocks = 23;
+  // Settlement periods with a timeout inside the rolling window that are not
+  // slashed, and the length of that window.
+  uint32 anchor_timeout_free_count = 24;
+  uint64 anchor_timeout_rolling_window_blocks = 25;
+  // Share of a wrong voter's slash paid to the opener of the re-audit that
+  // overturned the verdict, in basis points of the slashable base.
+  uint32 anchor_reaudit_reward_bps = 26;
+  // Slash of a panel member whose PASS or REJECT is the opposite of the final verdict.
+  uint32 anchor_verifier_wrong_vote_slash_bps = 27;
+  // Missed-vote rule: every anchor_verifier_miss_trigger_count missed periods
+  // inside anchor_verifier_miss_window_blocks suspend the Verifier for one
+  // period; from the anchor_verifier_miss_slash_from_trigger-th such trigger
+  // in the window it is also slashed anchor_verifier_miss_slash_bps.
+  uint32 anchor_verifier_miss_trigger_count = 28;
+  uint64 anchor_verifier_miss_window_blocks = 29;
+  uint32 anchor_verifier_miss_slash_from_trigger = 30;
+  uint32 anchor_verifier_miss_slash_bps = 31;
+  // A Verifier's effective bond must be at least this multiple of the order
+  // value it was drawn to audit inside anchor_verifier_allowance_window_blocks.
+  uint32 anchor_verifier_bond_multiple = 32;
+  uint64 anchor_verifier_allowance_window_blocks = 33;
+  // Per-model brake: tripped for a period with at least anchor_brake_min_cases
+  // REJECT verdicts whose rate is at least anchor_brake_multiple_x1000 / 1000
+  // times the mean rate of the previous anchor_brake_baseline_periods periods.
+  uint32 anchor_brake_min_cases = 34;
+  uint32 anchor_brake_multiple_x1000 = 35;
+  uint32 anchor_brake_baseline_periods = 36;
+  // Length of a settlement period; non-zero switches the Worker's net of every
+  // task to per-period batch settlement. At most
+  // batch_settlement_max_workers_per_block queued batches are paid per block.
+  uint64 batch_settlement_period_blocks = 37;
+  uint32 batch_settlement_max_workers_per_block = 38;
+  // Logprob-mode variant: slash of a Worker judged cheating and of a Verifier
+  // whose result is the opposite of the final verdict. Zero keeps the
+  // existing consequences.
+  uint32 logprob_reject_slash_bps = 39;
+  uint32 logprob_verifier_wrong_vote_slash_bps = 40;
+  // Tolerance of the signed input token count: a receipt whose prompt token
+  // count is below the attested count minus this value is refused. Zero means
+  // the attestation is ignored.
+  uint64 input_token_tolerance = 41;
 }
 
 // EvidenceLimitParamsV1 bounds evidence payloads and supported version catalogs.

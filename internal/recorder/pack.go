@@ -86,15 +86,30 @@ func (r *Recorder) pack(ctx context.Context, height uint64) {
 	msgs := make([]*taskv1.DispatchRecordEntryV1, 0, len(waiting))
 	sizes := make([]int, 0, len(waiting))
 	var kept []*entry
+	atts := make([]*taskv1.OrderInputTokensAttestationV1, 0, len(waiting))
 	for _, e := range waiting {
 		var m taskv1.DispatchRecordEntryV1
 		if err := proto.Unmarshal(e.Entry, &m); err != nil {
 			r.log.Error("stored dispatch entry does not decode", "session_id", e.SessionID, "order_sequence", e.Sequence, "err", err)
 			continue
 		}
+		one := &taskv1.MsgRecordDispatch{Entries: []*taskv1.DispatchRecordEntryV1{&m}}
+		// The attestation rides with its entry: an entry whose attestation does not decode is
+		// recorded without it (the chain then applies no input token rule to that task).
+		var att *taskv1.OrderInputTokensAttestationV1
+		if len(e.InputTokens) != 0 {
+			att = &taskv1.OrderInputTokensAttestationV1{}
+			if err := proto.Unmarshal(e.InputTokens, att); err != nil {
+				r.log.Error("stored input token attestation does not decode; the entry is recorded without it", "session_id", e.SessionID, "order_sequence", e.Sequence, "err", err)
+				att = nil
+			} else {
+				one.InputTokensAttestations = []*taskv1.OrderInputTokensAttestationV1{att}
+			}
+		}
 		kept = append(kept, e)
 		msgs = append(msgs, &m)
-		sizes = append(sizes, proto.Size(&taskv1.MsgRecordDispatch{Entries: []*taskv1.DispatchRecordEntryV1{&m}}))
+		atts = append(atts, att)
+		sizes = append(sizes, proto.Size(one))
 	}
 	base := proto.Size(&taskv1.MsgRecordDispatch{SubmitterAddress: r.cfg.Signer.Address()})
 	batches, tooLarge := split(base, sizes, maxEntries, params.MaxBytes)
@@ -111,6 +126,9 @@ func (r *Recorder) pack(ctx context.Context, height uint64) {
 		for j, i := range batch {
 			entries[j] = kept[i]
 			msg.Entries = append(msg.Entries, msgs[i])
+			if atts[i] != nil {
+				msg.InputTokensAttestations = append(msg.InputTokensAttestations, atts[i])
+			}
 		}
 		gas := gasFactor * r.recordGas(msg)
 		if r.cfg.GasMax != 0 {

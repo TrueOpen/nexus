@@ -93,8 +93,16 @@ type GenesisState struct {
 	AnchorAudits         []*AnchorAuditState         `protobuf:"bytes,94,rep,name=anchor_audits,json=anchorAudits,proto3" json:"anchor_audits,omitempty"`
 	AnchorValidatorVotes []*AnchorValidatorVoteState `protobuf:"bytes,95,rep,name=anchor_validator_votes,json=anchorValidatorVotes,proto3" json:"anchor_validator_votes,omitempty"`
 	AnchorVoteKeys       []*AnchorVoteKeyState       `protobuf:"bytes,96,rep,name=anchor_vote_keys,json=anchorVoteKeys,proto3" json:"anchor_vote_keys,omitempty"`
-	unknownFields        protoimpl.UnknownFields
-	sizeCache            protoimpl.SizeCache
+	// Verifier-panel audit, batch settlement and brake tables. Fields 97-98 are
+	// left to the content-track contract; these tables start at 99. Panel rounds
+	// are exported inside AnchorAuditState.panel_rounds.
+	WorkerBatches          []*WorkerBatchState           `protobuf:"bytes,99,rep,name=worker_batches,json=workerBatches,proto3" json:"worker_batches,omitempty"`
+	WorkerBatchTasks       []*WorkerBatchTaskState       `protobuf:"bytes,100,rep,name=worker_batch_tasks,json=workerBatchTasks,proto3" json:"worker_batch_tasks,omitempty"`
+	WorkerTimeoutLedgers   []*WorkerTimeoutLedgerState   `protobuf:"bytes,101,rep,name=worker_timeout_ledgers,json=workerTimeoutLedgers,proto3" json:"worker_timeout_ledgers,omitempty"`
+	VerifierAuditStandings []*VerifierAuditStandingState `protobuf:"bytes,102,rep,name=verifier_audit_standings,json=verifierAuditStandings,proto3" json:"verifier_audit_standings,omitempty"`
+	AnchorBrakes           []*AnchorBrakeState           `protobuf:"bytes,103,rep,name=anchor_brakes,json=anchorBrakes,proto3" json:"anchor_brakes,omitempty"`
+	unknownFields          protoimpl.UnknownFields
+	sizeCache              protoimpl.SizeCache
 }
 
 func (x *GenesisState) Reset() {
@@ -505,6 +513,41 @@ func (x *GenesisState) GetAnchorVoteKeys() []*AnchorVoteKeyState {
 	return nil
 }
 
+func (x *GenesisState) GetWorkerBatches() []*WorkerBatchState {
+	if x != nil {
+		return x.WorkerBatches
+	}
+	return nil
+}
+
+func (x *GenesisState) GetWorkerBatchTasks() []*WorkerBatchTaskState {
+	if x != nil {
+		return x.WorkerBatchTasks
+	}
+	return nil
+}
+
+func (x *GenesisState) GetWorkerTimeoutLedgers() []*WorkerTimeoutLedgerState {
+	if x != nil {
+		return x.WorkerTimeoutLedgers
+	}
+	return nil
+}
+
+func (x *GenesisState) GetVerifierAuditStandings() []*VerifierAuditStandingState {
+	if x != nil {
+		return x.VerifierAuditStandings
+	}
+	return nil
+}
+
+func (x *GenesisState) GetAnchorBrakes() []*AnchorBrakeState {
+	if x != nil {
+		return x.AnchorBrakes
+	}
+	return nil
+}
+
 // TaskParamsHistoryState retains one superseded parameter body. Version zero
 // may name the chain's initial parameter set. Heights can coincide when several
 // governance updates execute in one block; the highest version wins at that H.
@@ -640,7 +683,7 @@ var File_task_v1_genesis_proto protoreflect.FileDescriptor
 
 const file_task_v1_genesis_proto_rawDesc = "" +
 	"\n" +
-	"\x15task/v1/genesis.proto\x12\atask.v1\x1a\x14task/v1/anchor.proto\x1a\x18task/v1/assignment.proto\x1a\x17task/v1/challenge.proto\x1a\x15task/v1/cleanup.proto\x1a\x14task/v1/commit.proto\x1a\x1ctask/v1/dispatch_state.proto\x1a\x1btask/v1/epoch_summary.proto\x1a\x16task/v1/evidence.proto\x1a\x1btask/v1/infer_receipt.proto\x1a\x19task/v1/open_verify.proto\x1a\x14task/v1/params.proto\x1a\x14task/v1/result.proto\x1a\x15task/v1/session.proto\x1a\x18task/v1/settlement.proto\x1a\x1ctask/v1/timeout_bucket.proto\x1a\x1ctask/v1/value_evidence.proto\"\xa2%\n" +
+	"\x15task/v1/genesis.proto\x12\atask.v1\x1a\x14task/v1/anchor.proto\x1a\x1atask/v1/anchor_panel.proto\x1a\x18task/v1/assignment.proto\x1a\x17task/v1/challenge.proto\x1a\x15task/v1/cleanup.proto\x1a\x14task/v1/commit.proto\x1a\x1ctask/v1/dispatch_state.proto\x1a\x1btask/v1/epoch_summary.proto\x1a\x16task/v1/evidence.proto\x1a\x1btask/v1/infer_receipt.proto\x1a\x19task/v1/open_verify.proto\x1a\x14task/v1/params.proto\x1a\x14task/v1/result.proto\x1a\x15task/v1/session.proto\x1a\x18task/v1/settlement.proto\x1a\x1ctask/v1/timeout_bucket.proto\x1a\x1ctask/v1/value_evidence.proto\"\xa9(\n" +
 	"\fGenesisState\x12-\n" +
 	"\x06params\x18\x01 \x01(\v2\x15.task.v1.TaskParamsV1R\x06params\x12=\n" +
 	"\vparams_meta\x18\x02 \x01(\v2\x1c.task.v1.TaskParamsMetaStateR\n" +
@@ -698,7 +741,12 @@ const file_task_v1_genesis_proto_rawDesc = "" +
 	"\x18dispatch_round_acceptors\x18] \x03(\v2#.task.v1.DispatchRoundAcceptorStateR\x16dispatchRoundAcceptors\x12>\n" +
 	"\ranchor_audits\x18^ \x03(\v2\x19.task.v1.AnchorAuditStateR\fanchorAudits\x12W\n" +
 	"\x16anchor_validator_votes\x18_ \x03(\v2!.task.v1.AnchorValidatorVoteStateR\x14anchorValidatorVotes\x12E\n" +
-	"\x10anchor_vote_keys\x18` \x03(\v2\x1b.task.v1.AnchorVoteKeyStateR\x0eanchorVoteKeysJ\x04\b\x16\x10\x17R\x19assignment_candidate_sets\"\xc2\x01\n" +
+	"\x10anchor_vote_keys\x18` \x03(\v2\x1b.task.v1.AnchorVoteKeyStateR\x0eanchorVoteKeys\x12@\n" +
+	"\x0eworker_batches\x18c \x03(\v2\x19.task.v1.WorkerBatchStateR\rworkerBatches\x12K\n" +
+	"\x12worker_batch_tasks\x18d \x03(\v2\x1d.task.v1.WorkerBatchTaskStateR\x10workerBatchTasks\x12W\n" +
+	"\x16worker_timeout_ledgers\x18e \x03(\v2!.task.v1.WorkerTimeoutLedgerStateR\x14workerTimeoutLedgers\x12]\n" +
+	"\x18verifier_audit_standings\x18f \x03(\v2#.task.v1.VerifierAuditStandingStateR\x16verifierAuditStandings\x12>\n" +
+	"\ranchor_brakes\x18g \x03(\v2\x19.task.v1.AnchorBrakeStateR\fanchorBrakesJ\x04\b\x16\x10\x17R\x19assignment_candidate_sets\"\xc2\x01\n" +
 	"\x16TaskParamsHistoryState\x12%\n" +
 	"\x0eparams_version\x18\x01 \x01(\x04R\rparamsVersion\x12-\n" +
 	"\x06params\x18\x02 \x01(\v2\x15.task.v1.TaskParamsV1R\x06params\x12%\n" +
@@ -776,6 +824,11 @@ var file_task_v1_genesis_proto_goTypes = []any{
 	(*AnchorAuditState)(nil),                         // 51: task.v1.AnchorAuditState
 	(*AnchorValidatorVoteState)(nil),                 // 52: task.v1.AnchorValidatorVoteState
 	(*AnchorVoteKeyState)(nil),                       // 53: task.v1.AnchorVoteKeyState
+	(*WorkerBatchState)(nil),                         // 54: task.v1.WorkerBatchState
+	(*WorkerBatchTaskState)(nil),                     // 55: task.v1.WorkerBatchTaskState
+	(*WorkerTimeoutLedgerState)(nil),                 // 56: task.v1.WorkerTimeoutLedgerState
+	(*VerifierAuditStandingState)(nil),               // 57: task.v1.VerifierAuditStandingState
+	(*AnchorBrakeState)(nil),                         // 58: task.v1.AnchorBrakeState
 }
 var file_task_v1_genesis_proto_depIdxs = []int32{
 	3,  // 0: task.v1.GenesisState.params:type_name -> task.v1.TaskParamsV1
@@ -832,12 +885,17 @@ var file_task_v1_genesis_proto_depIdxs = []int32{
 	51, // 51: task.v1.GenesisState.anchor_audits:type_name -> task.v1.AnchorAuditState
 	52, // 52: task.v1.GenesisState.anchor_validator_votes:type_name -> task.v1.AnchorValidatorVoteState
 	53, // 53: task.v1.GenesisState.anchor_vote_keys:type_name -> task.v1.AnchorVoteKeyState
-	3,  // 54: task.v1.TaskParamsHistoryState.params:type_name -> task.v1.TaskParamsV1
-	55, // [55:55] is the sub-list for method output_type
-	55, // [55:55] is the sub-list for method input_type
-	55, // [55:55] is the sub-list for extension type_name
-	55, // [55:55] is the sub-list for extension extendee
-	0,  // [0:55] is the sub-list for field type_name
+	54, // 54: task.v1.GenesisState.worker_batches:type_name -> task.v1.WorkerBatchState
+	55, // 55: task.v1.GenesisState.worker_batch_tasks:type_name -> task.v1.WorkerBatchTaskState
+	56, // 56: task.v1.GenesisState.worker_timeout_ledgers:type_name -> task.v1.WorkerTimeoutLedgerState
+	57, // 57: task.v1.GenesisState.verifier_audit_standings:type_name -> task.v1.VerifierAuditStandingState
+	58, // 58: task.v1.GenesisState.anchor_brakes:type_name -> task.v1.AnchorBrakeState
+	3,  // 59: task.v1.TaskParamsHistoryState.params:type_name -> task.v1.TaskParamsV1
+	60, // [60:60] is the sub-list for method output_type
+	60, // [60:60] is the sub-list for method input_type
+	60, // [60:60] is the sub-list for extension type_name
+	60, // [60:60] is the sub-list for extension extendee
+	0,  // [0:60] is the sub-list for field type_name
 }
 
 func init() { file_task_v1_genesis_proto_init() }
@@ -846,6 +904,7 @@ func file_task_v1_genesis_proto_init() {
 		return
 	}
 	file_task_v1_anchor_proto_init()
+	file_task_v1_anchor_panel_proto_init()
 	file_task_v1_assignment_proto_init()
 	file_task_v1_challenge_proto_init()
 	file_task_v1_cleanup_proto_init()

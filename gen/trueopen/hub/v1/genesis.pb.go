@@ -75,6 +75,8 @@ type GenesisState struct {
 	TaskLiabilityReservations    []*TaskLiabilityReservationState   `protobuf:"bytes,27,rep,name=task_liability_reservations,json=taskLiabilityReservations,proto3" json:"task_liability_reservations,omitempty"`
 	ServiceKeyResponsibilities   []*ServiceKeyResponsibilityState   `protobuf:"bytes,28,rep,name=service_key_responsibilities,json=serviceKeyResponsibilities,proto3" json:"service_key_responsibilities,omitempty"`
 	PendingBuilderSetReplacement *BuilderSetPendingReplacementState `protobuf:"bytes,29,opt,name=pending_builder_set_replacement,json=pendingBuilderSetReplacement,proto3" json:"pending_builder_set_replacement,omitempty"`
+	// Per-period order quota rows of Workers (worker_quota_period_value_bps_of_bond).
+	WorkerQuotas []*WorkerQuotaState `protobuf:"bytes,110,rep,name=worker_quotas,json=workerQuotas,proto3" json:"worker_quotas,omitempty"`
 	// Jail and tombstone facts are operator-global counters on ServiceBondState
 	// (status / jail_count / normal_action_count_since_jail) per
 	// the contract, so there is no separate jail or tombstone
@@ -311,6 +313,13 @@ func (x *GenesisState) GetServiceKeyResponsibilities() []*ServiceKeyResponsibili
 func (x *GenesisState) GetPendingBuilderSetReplacement() *BuilderSetPendingReplacementState {
 	if x != nil {
 		return x.PendingBuilderSetReplacement
+	}
+	return nil
+}
+
+func (x *GenesisState) GetWorkerQuotas() []*WorkerQuotaState {
+	if x != nil {
+		return x.WorkerQuotas
 	}
 	return nil
 }
@@ -613,7 +622,7 @@ var File_hub_v1_genesis_proto protoreflect.FileDescriptor
 
 const file_hub_v1_genesis_proto_rawDesc = "" +
 	"\n" +
-	"\x14hub/v1/genesis.proto\x12\x06hub.v1\x1a\x13hub/v1/beacon.proto\x1a\x13hub/v1/bridge.proto\x1a\x14hub/v1/builder.proto\x1a\x1bhub/v1/candidate_pool.proto\x1a\x1ahub/v1/daily_support.proto\x1a\x15hub/v1/dispatch.proto\x1a\x1dhub/v1/emergency_freeze.proto\x1a\x12hub/v1/fault.proto\x1a hub/v1/model_profile_state.proto\x1a\x13hub/v1/params.proto\x1a!hub/v1/participant_identity.proto\x1a\x13hub/v1/reward.proto\x1a\x19hub/v1/service_bond.proto\x1a\x15hub/v1/treasury.proto\x1a\x10hub/v1/vrf.proto\"\xaa)\n" +
+	"\x14hub/v1/genesis.proto\x12\x06hub.v1\x1a\x13hub/v1/beacon.proto\x1a\x13hub/v1/bridge.proto\x1a\x14hub/v1/builder.proto\x1a\x1bhub/v1/candidate_pool.proto\x1a\x1ahub/v1/daily_support.proto\x1a\x15hub/v1/dispatch.proto\x1a\x1dhub/v1/emergency_freeze.proto\x1a\x12hub/v1/fault.proto\x1a hub/v1/model_profile_state.proto\x1a\x13hub/v1/params.proto\x1a!hub/v1/participant_identity.proto\x1a\x13hub/v1/reward.proto\x1a\x19hub/v1/service_bond.proto\x1a\x15hub/v1/treasury.proto\x1a\x10hub/v1/vrf.proto\"\xe9)\n" +
 	"\fGenesisState\x12+\n" +
 	"\x06params\x18\x01 \x01(\v2\x13.hub.v1.HubParamsV2R\x06params\x12;\n" +
 	"\vparams_meta\x18\x02 \x01(\v2\x1a.hub.v1.HubParamsMetaStateR\n" +
@@ -637,7 +646,8 @@ const file_hub_v1_genesis_proto_rawDesc = "" +
 	"\x13service_descriptors\x18\x1a \x03(\v2\x1e.hub.v1.ServiceDescriptorStateR\x12serviceDescriptors\x12e\n" +
 	"\x1btask_liability_reservations\x18\x1b \x03(\v2%.hub.v1.TaskLiabilityReservationStateR\x19taskLiabilityReservations\x12g\n" +
 	"\x1cservice_key_responsibilities\x18\x1c \x03(\v2%.hub.v1.ServiceKeyResponsibilityStateR\x1aserviceKeyResponsibilities\x12p\n" +
-	"\x1fpending_builder_set_replacement\x18\x1d \x01(\v2).hub.v1.BuilderSetPendingReplacementStateR\x1cpendingBuilderSetReplacement\x127\n" +
+	"\x1fpending_builder_set_replacement\x18\x1d \x01(\v2).hub.v1.BuilderSetPendingReplacementStateR\x1cpendingBuilderSetReplacement\x12=\n" +
+	"\rworker_quotas\x18n \x03(\v2\x18.hub.v1.WorkerQuotaStateR\fworkerQuotas\x127\n" +
 	"\vrole_faults\x18\x1e \x03(\v2\x16.hub.v1.RoleFaultStateR\n" +
 	"roleFaults\x12B\n" +
 	"\x0fslash_summaries\x18\x1f \x03(\v2\x19.hub.v1.SlashSummaryStateR\x0eslashSummaries\x121\n" +
@@ -718,48 +728,49 @@ var file_hub_v1_genesis_proto_goTypes = []any{
 	(*TaskLiabilityReservationState)(nil),        // 19: hub.v1.TaskLiabilityReservationState
 	(*ServiceKeyResponsibilityState)(nil),        // 20: hub.v1.ServiceKeyResponsibilityState
 	(*BuilderSetPendingReplacementState)(nil),    // 21: hub.v1.BuilderSetPendingReplacementState
-	(*RoleFaultState)(nil),                       // 22: hub.v1.RoleFaultState
-	(*SlashSummaryState)(nil),                    // 23: hub.v1.SlashSummaryState
-	(*TreasuryState)(nil),                        // 24: hub.v1.TreasuryState
-	(*TreasurySpendReceiptState)(nil),            // 25: hub.v1.TreasurySpendReceiptState
-	(*ParameterBucketVersionState)(nil),          // 26: hub.v1.ParameterBucketVersionState
-	(*ParameterBucketCurrentPointerState)(nil),   // 27: hub.v1.ParameterBucketCurrentPointerState
-	(*ParameterBucketPendingPointerState)(nil),   // 28: hub.v1.ParameterBucketPendingPointerState
-	(*RewardEpochCursorState)(nil),               // 29: hub.v1.RewardEpochCursorState
-	(*RewardCompetitionEpochState)(nil),          // 30: hub.v1.RewardCompetitionEpochState
-	(*EarningsState)(nil),                        // 31: hub.v1.EarningsState
-	(*RewardEpochPruneCursorState)(nil),          // 32: hub.v1.RewardEpochPruneCursorState
-	(*RewardEpochAuditState)(nil),                // 33: hub.v1.RewardEpochAuditState
-	(*BeaconState)(nil),                          // 34: hub.v1.BeaconState
-	(*BeaconCheckpointState)(nil),                // 35: hub.v1.BeaconCheckpointState
-	(*VrfKeyState)(nil),                          // 36: hub.v1.VrfKeyState
-	(*VrfKeyHistoryState)(nil),                   // 37: hub.v1.VrfKeyHistoryState
-	(*BridgeGenesisV1)(nil),                      // 38: hub.v1.BridgeGenesisV1
-	(*ValidatorBridgeSignerState)(nil),           // 39: hub.v1.ValidatorBridgeSignerState
-	(*BeaconPruneIndex)(nil),                     // 40: hub.v1.BeaconPruneIndex
-	(*FreezeSignalState)(nil),                    // 41: hub.v1.FreezeSignalState
-	(*EmergencyFreezeVoteState)(nil),             // 42: hub.v1.EmergencyFreezeVoteState
-	(*FreezeSignalBuildCursorState)(nil),         // 43: hub.v1.FreezeSignalBuildCursorState
-	(*FreezeSignalByWindowIndex)(nil),            // 44: hub.v1.FreezeSignalByWindowIndex
-	(*CandidatePoolSnapshotState)(nil),           // 45: hub.v1.CandidatePoolSnapshotState
-	(*CandidatePoolActiveSegmentState)(nil),      // 46: hub.v1.CandidatePoolActiveSegmentState
-	(*CandidatePoolMemberState)(nil),             // 47: hub.v1.CandidatePoolMemberState
-	(*CandidateSlotCurrentState)(nil),            // 48: hub.v1.CandidateSlotCurrentState
-	(*CandidateSlotBindingState)(nil),            // 49: hub.v1.CandidateSlotBindingState
-	(*CandidatePoolBuildCursorState)(nil),        // 50: hub.v1.CandidatePoolBuildCursorState
-	(*CandidatePoolBuildStatusState)(nil),        // 51: hub.v1.CandidatePoolBuildStatusState
-	(*CurrentCandidatePoolState)(nil),            // 52: hub.v1.CurrentCandidatePoolState
-	(*CandidatePoolTaskRefState)(nil),            // 53: hub.v1.CandidatePoolTaskRefState
-	(*BuilderSetTaskRefState)(nil),               // 54: hub.v1.BuilderSetTaskRefState
-	(*RewardEpochPruneIndex)(nil),                // 55: hub.v1.RewardEpochPruneIndex
-	(*TreasurySpendProposalState)(nil),           // 56: hub.v1.TreasurySpendProposalState
-	(*TreasurySpendEpochState)(nil),              // 57: hub.v1.TreasurySpendEpochState
-	(*TreasurySpendRecipientEpochState)(nil),     // 58: hub.v1.TreasurySpendRecipientEpochState
-	(*TreasurySpendEpochCleanupCursorState)(nil), // 59: hub.v1.TreasurySpendEpochCleanupCursorState
-	(*ModelSupportDeactivateCursorState)(nil),    // 60: hub.v1.ModelSupportDeactivateCursorState
-	(*BuilderCompensationAccountState)(nil),      // 61: hub.v1.BuilderCompensationAccountState
-	(*DispatchFaultState)(nil),                   // 62: hub.v1.DispatchFaultState
-	(*PendingServiceKeyRotationState)(nil),       // 63: hub.v1.PendingServiceKeyRotationState
+	(*WorkerQuotaState)(nil),                     // 22: hub.v1.WorkerQuotaState
+	(*RoleFaultState)(nil),                       // 23: hub.v1.RoleFaultState
+	(*SlashSummaryState)(nil),                    // 24: hub.v1.SlashSummaryState
+	(*TreasuryState)(nil),                        // 25: hub.v1.TreasuryState
+	(*TreasurySpendReceiptState)(nil),            // 26: hub.v1.TreasurySpendReceiptState
+	(*ParameterBucketVersionState)(nil),          // 27: hub.v1.ParameterBucketVersionState
+	(*ParameterBucketCurrentPointerState)(nil),   // 28: hub.v1.ParameterBucketCurrentPointerState
+	(*ParameterBucketPendingPointerState)(nil),   // 29: hub.v1.ParameterBucketPendingPointerState
+	(*RewardEpochCursorState)(nil),               // 30: hub.v1.RewardEpochCursorState
+	(*RewardCompetitionEpochState)(nil),          // 31: hub.v1.RewardCompetitionEpochState
+	(*EarningsState)(nil),                        // 32: hub.v1.EarningsState
+	(*RewardEpochPruneCursorState)(nil),          // 33: hub.v1.RewardEpochPruneCursorState
+	(*RewardEpochAuditState)(nil),                // 34: hub.v1.RewardEpochAuditState
+	(*BeaconState)(nil),                          // 35: hub.v1.BeaconState
+	(*BeaconCheckpointState)(nil),                // 36: hub.v1.BeaconCheckpointState
+	(*VrfKeyState)(nil),                          // 37: hub.v1.VrfKeyState
+	(*VrfKeyHistoryState)(nil),                   // 38: hub.v1.VrfKeyHistoryState
+	(*BridgeGenesisV1)(nil),                      // 39: hub.v1.BridgeGenesisV1
+	(*ValidatorBridgeSignerState)(nil),           // 40: hub.v1.ValidatorBridgeSignerState
+	(*BeaconPruneIndex)(nil),                     // 41: hub.v1.BeaconPruneIndex
+	(*FreezeSignalState)(nil),                    // 42: hub.v1.FreezeSignalState
+	(*EmergencyFreezeVoteState)(nil),             // 43: hub.v1.EmergencyFreezeVoteState
+	(*FreezeSignalBuildCursorState)(nil),         // 44: hub.v1.FreezeSignalBuildCursorState
+	(*FreezeSignalByWindowIndex)(nil),            // 45: hub.v1.FreezeSignalByWindowIndex
+	(*CandidatePoolSnapshotState)(nil),           // 46: hub.v1.CandidatePoolSnapshotState
+	(*CandidatePoolActiveSegmentState)(nil),      // 47: hub.v1.CandidatePoolActiveSegmentState
+	(*CandidatePoolMemberState)(nil),             // 48: hub.v1.CandidatePoolMemberState
+	(*CandidateSlotCurrentState)(nil),            // 49: hub.v1.CandidateSlotCurrentState
+	(*CandidateSlotBindingState)(nil),            // 50: hub.v1.CandidateSlotBindingState
+	(*CandidatePoolBuildCursorState)(nil),        // 51: hub.v1.CandidatePoolBuildCursorState
+	(*CandidatePoolBuildStatusState)(nil),        // 52: hub.v1.CandidatePoolBuildStatusState
+	(*CurrentCandidatePoolState)(nil),            // 53: hub.v1.CurrentCandidatePoolState
+	(*CandidatePoolTaskRefState)(nil),            // 54: hub.v1.CandidatePoolTaskRefState
+	(*BuilderSetTaskRefState)(nil),               // 55: hub.v1.BuilderSetTaskRefState
+	(*RewardEpochPruneIndex)(nil),                // 56: hub.v1.RewardEpochPruneIndex
+	(*TreasurySpendProposalState)(nil),           // 57: hub.v1.TreasurySpendProposalState
+	(*TreasurySpendEpochState)(nil),              // 58: hub.v1.TreasurySpendEpochState
+	(*TreasurySpendRecipientEpochState)(nil),     // 59: hub.v1.TreasurySpendRecipientEpochState
+	(*TreasurySpendEpochCleanupCursorState)(nil), // 60: hub.v1.TreasurySpendEpochCleanupCursorState
+	(*ModelSupportDeactivateCursorState)(nil),    // 61: hub.v1.ModelSupportDeactivateCursorState
+	(*BuilderCompensationAccountState)(nil),      // 62: hub.v1.BuilderCompensationAccountState
+	(*DispatchFaultState)(nil),                   // 63: hub.v1.DispatchFaultState
+	(*PendingServiceKeyRotationState)(nil),       // 64: hub.v1.PendingServiceKeyRotationState
 }
 var file_hub_v1_genesis_proto_depIdxs = []int32{
 	1,  // 0: hub.v1.GenesisState.params:type_name -> hub.v1.HubParamsV2
@@ -783,53 +794,54 @@ var file_hub_v1_genesis_proto_depIdxs = []int32{
 	19, // 18: hub.v1.GenesisState.task_liability_reservations:type_name -> hub.v1.TaskLiabilityReservationState
 	20, // 19: hub.v1.GenesisState.service_key_responsibilities:type_name -> hub.v1.ServiceKeyResponsibilityState
 	21, // 20: hub.v1.GenesisState.pending_builder_set_replacement:type_name -> hub.v1.BuilderSetPendingReplacementState
-	22, // 21: hub.v1.GenesisState.role_faults:type_name -> hub.v1.RoleFaultState
-	23, // 22: hub.v1.GenesisState.slash_summaries:type_name -> hub.v1.SlashSummaryState
-	24, // 23: hub.v1.GenesisState.treasury:type_name -> hub.v1.TreasuryState
-	25, // 24: hub.v1.GenesisState.treasury_spend_receipts:type_name -> hub.v1.TreasurySpendReceiptState
-	26, // 25: hub.v1.GenesisState.parameter_bucket_versions:type_name -> hub.v1.ParameterBucketVersionState
-	27, // 26: hub.v1.GenesisState.parameter_bucket_current_pointers:type_name -> hub.v1.ParameterBucketCurrentPointerState
-	28, // 27: hub.v1.GenesisState.parameter_bucket_pending_pointers:type_name -> hub.v1.ParameterBucketPendingPointerState
-	29, // 28: hub.v1.GenesisState.reward_epoch_cursors:type_name -> hub.v1.RewardEpochCursorState
-	30, // 29: hub.v1.GenesisState.reward_competition_epochs:type_name -> hub.v1.RewardCompetitionEpochState
-	31, // 30: hub.v1.GenesisState.earnings:type_name -> hub.v1.EarningsState
-	32, // 31: hub.v1.GenesisState.reward_epoch_prune_cursors:type_name -> hub.v1.RewardEpochPruneCursorState
-	33, // 32: hub.v1.GenesisState.reward_epoch_audits:type_name -> hub.v1.RewardEpochAuditState
-	34, // 33: hub.v1.GenesisState.beacons:type_name -> hub.v1.BeaconState
-	35, // 34: hub.v1.GenesisState.beacon_checkpoints:type_name -> hub.v1.BeaconCheckpointState
-	36, // 35: hub.v1.GenesisState.vrf_keys:type_name -> hub.v1.VrfKeyState
-	37, // 36: hub.v1.GenesisState.vrf_key_history:type_name -> hub.v1.VrfKeyHistoryState
-	38, // 37: hub.v1.GenesisState.bridge:type_name -> hub.v1.BridgeGenesisV1
-	39, // 38: hub.v1.GenesisState.validator_bridge_signers:type_name -> hub.v1.ValidatorBridgeSignerState
-	40, // 39: hub.v1.GenesisState.beacon_prune_indexes:type_name -> hub.v1.BeaconPruneIndex
-	41, // 40: hub.v1.GenesisState.freeze_signals:type_name -> hub.v1.FreezeSignalState
-	42, // 41: hub.v1.GenesisState.emergency_freeze_votes:type_name -> hub.v1.EmergencyFreezeVoteState
-	43, // 42: hub.v1.GenesisState.freeze_signal_build_cursors:type_name -> hub.v1.FreezeSignalBuildCursorState
-	44, // 43: hub.v1.GenesisState.freeze_signal_window_bindings:type_name -> hub.v1.FreezeSignalByWindowIndex
-	45, // 44: hub.v1.GenesisState.candidate_pool_snapshots:type_name -> hub.v1.CandidatePoolSnapshotState
-	46, // 45: hub.v1.GenesisState.candidate_pool_active_segments:type_name -> hub.v1.CandidatePoolActiveSegmentState
-	47, // 46: hub.v1.GenesisState.candidate_pool_members:type_name -> hub.v1.CandidatePoolMemberState
-	48, // 47: hub.v1.GenesisState.candidate_slot_currents:type_name -> hub.v1.CandidateSlotCurrentState
-	49, // 48: hub.v1.GenesisState.candidate_slot_bindings:type_name -> hub.v1.CandidateSlotBindingState
-	50, // 49: hub.v1.GenesisState.candidate_pool_build_cursors:type_name -> hub.v1.CandidatePoolBuildCursorState
-	51, // 50: hub.v1.GenesisState.candidate_pool_build_status:type_name -> hub.v1.CandidatePoolBuildStatusState
-	52, // 51: hub.v1.GenesisState.current_candidate_pool:type_name -> hub.v1.CurrentCandidatePoolState
-	53, // 52: hub.v1.GenesisState.candidate_pool_task_refs:type_name -> hub.v1.CandidatePoolTaskRefState
-	54, // 53: hub.v1.GenesisState.builder_set_task_refs:type_name -> hub.v1.BuilderSetTaskRefState
-	55, // 54: hub.v1.GenesisState.reward_epoch_prune_indexes:type_name -> hub.v1.RewardEpochPruneIndex
-	56, // 55: hub.v1.GenesisState.treasury_spend_proposals:type_name -> hub.v1.TreasurySpendProposalState
-	57, // 56: hub.v1.GenesisState.treasury_spend_epochs:type_name -> hub.v1.TreasurySpendEpochState
-	58, // 57: hub.v1.GenesisState.treasury_spend_recipient_epochs:type_name -> hub.v1.TreasurySpendRecipientEpochState
-	59, // 58: hub.v1.GenesisState.treasury_spend_epoch_cleanup_cursors:type_name -> hub.v1.TreasurySpendEpochCleanupCursorState
-	60, // 59: hub.v1.GenesisState.model_support_deactivate_cursors:type_name -> hub.v1.ModelSupportDeactivateCursorState
-	61, // 60: hub.v1.GenesisState.builder_compensation_accounts:type_name -> hub.v1.BuilderCompensationAccountState
-	62, // 61: hub.v1.GenesisState.dispatch_faults:type_name -> hub.v1.DispatchFaultState
-	63, // 62: hub.v1.GenesisState.pending_service_key_rotations:type_name -> hub.v1.PendingServiceKeyRotationState
-	63, // [63:63] is the sub-list for method output_type
-	63, // [63:63] is the sub-list for method input_type
-	63, // [63:63] is the sub-list for extension type_name
-	63, // [63:63] is the sub-list for extension extendee
-	0,  // [0:63] is the sub-list for field type_name
+	22, // 21: hub.v1.GenesisState.worker_quotas:type_name -> hub.v1.WorkerQuotaState
+	23, // 22: hub.v1.GenesisState.role_faults:type_name -> hub.v1.RoleFaultState
+	24, // 23: hub.v1.GenesisState.slash_summaries:type_name -> hub.v1.SlashSummaryState
+	25, // 24: hub.v1.GenesisState.treasury:type_name -> hub.v1.TreasuryState
+	26, // 25: hub.v1.GenesisState.treasury_spend_receipts:type_name -> hub.v1.TreasurySpendReceiptState
+	27, // 26: hub.v1.GenesisState.parameter_bucket_versions:type_name -> hub.v1.ParameterBucketVersionState
+	28, // 27: hub.v1.GenesisState.parameter_bucket_current_pointers:type_name -> hub.v1.ParameterBucketCurrentPointerState
+	29, // 28: hub.v1.GenesisState.parameter_bucket_pending_pointers:type_name -> hub.v1.ParameterBucketPendingPointerState
+	30, // 29: hub.v1.GenesisState.reward_epoch_cursors:type_name -> hub.v1.RewardEpochCursorState
+	31, // 30: hub.v1.GenesisState.reward_competition_epochs:type_name -> hub.v1.RewardCompetitionEpochState
+	32, // 31: hub.v1.GenesisState.earnings:type_name -> hub.v1.EarningsState
+	33, // 32: hub.v1.GenesisState.reward_epoch_prune_cursors:type_name -> hub.v1.RewardEpochPruneCursorState
+	34, // 33: hub.v1.GenesisState.reward_epoch_audits:type_name -> hub.v1.RewardEpochAuditState
+	35, // 34: hub.v1.GenesisState.beacons:type_name -> hub.v1.BeaconState
+	36, // 35: hub.v1.GenesisState.beacon_checkpoints:type_name -> hub.v1.BeaconCheckpointState
+	37, // 36: hub.v1.GenesisState.vrf_keys:type_name -> hub.v1.VrfKeyState
+	38, // 37: hub.v1.GenesisState.vrf_key_history:type_name -> hub.v1.VrfKeyHistoryState
+	39, // 38: hub.v1.GenesisState.bridge:type_name -> hub.v1.BridgeGenesisV1
+	40, // 39: hub.v1.GenesisState.validator_bridge_signers:type_name -> hub.v1.ValidatorBridgeSignerState
+	41, // 40: hub.v1.GenesisState.beacon_prune_indexes:type_name -> hub.v1.BeaconPruneIndex
+	42, // 41: hub.v1.GenesisState.freeze_signals:type_name -> hub.v1.FreezeSignalState
+	43, // 42: hub.v1.GenesisState.emergency_freeze_votes:type_name -> hub.v1.EmergencyFreezeVoteState
+	44, // 43: hub.v1.GenesisState.freeze_signal_build_cursors:type_name -> hub.v1.FreezeSignalBuildCursorState
+	45, // 44: hub.v1.GenesisState.freeze_signal_window_bindings:type_name -> hub.v1.FreezeSignalByWindowIndex
+	46, // 45: hub.v1.GenesisState.candidate_pool_snapshots:type_name -> hub.v1.CandidatePoolSnapshotState
+	47, // 46: hub.v1.GenesisState.candidate_pool_active_segments:type_name -> hub.v1.CandidatePoolActiveSegmentState
+	48, // 47: hub.v1.GenesisState.candidate_pool_members:type_name -> hub.v1.CandidatePoolMemberState
+	49, // 48: hub.v1.GenesisState.candidate_slot_currents:type_name -> hub.v1.CandidateSlotCurrentState
+	50, // 49: hub.v1.GenesisState.candidate_slot_bindings:type_name -> hub.v1.CandidateSlotBindingState
+	51, // 50: hub.v1.GenesisState.candidate_pool_build_cursors:type_name -> hub.v1.CandidatePoolBuildCursorState
+	52, // 51: hub.v1.GenesisState.candidate_pool_build_status:type_name -> hub.v1.CandidatePoolBuildStatusState
+	53, // 52: hub.v1.GenesisState.current_candidate_pool:type_name -> hub.v1.CurrentCandidatePoolState
+	54, // 53: hub.v1.GenesisState.candidate_pool_task_refs:type_name -> hub.v1.CandidatePoolTaskRefState
+	55, // 54: hub.v1.GenesisState.builder_set_task_refs:type_name -> hub.v1.BuilderSetTaskRefState
+	56, // 55: hub.v1.GenesisState.reward_epoch_prune_indexes:type_name -> hub.v1.RewardEpochPruneIndex
+	57, // 56: hub.v1.GenesisState.treasury_spend_proposals:type_name -> hub.v1.TreasurySpendProposalState
+	58, // 57: hub.v1.GenesisState.treasury_spend_epochs:type_name -> hub.v1.TreasurySpendEpochState
+	59, // 58: hub.v1.GenesisState.treasury_spend_recipient_epochs:type_name -> hub.v1.TreasurySpendRecipientEpochState
+	60, // 59: hub.v1.GenesisState.treasury_spend_epoch_cleanup_cursors:type_name -> hub.v1.TreasurySpendEpochCleanupCursorState
+	61, // 60: hub.v1.GenesisState.model_support_deactivate_cursors:type_name -> hub.v1.ModelSupportDeactivateCursorState
+	62, // 61: hub.v1.GenesisState.builder_compensation_accounts:type_name -> hub.v1.BuilderCompensationAccountState
+	63, // 62: hub.v1.GenesisState.dispatch_faults:type_name -> hub.v1.DispatchFaultState
+	64, // 63: hub.v1.GenesisState.pending_service_key_rotations:type_name -> hub.v1.PendingServiceKeyRotationState
+	64, // [64:64] is the sub-list for method output_type
+	64, // [64:64] is the sub-list for method input_type
+	64, // [64:64] is the sub-list for extension type_name
+	64, // [64:64] is the sub-list for extension extendee
+	0,  // [0:64] is the sub-list for field type_name
 }
 
 func init() { file_hub_v1_genesis_proto_init() }

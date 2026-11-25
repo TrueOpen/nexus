@@ -63,6 +63,12 @@ const (
 	SkipTimeout         = "timeout"
 	SkipUnreachable     = "unreachable"
 	SkipRotationPending = "rotation_pending"
+	// SkipWorkerPaused counts members the chain has paused for dispatch (late submission
+	// pending, unbonding or jailed); their ticket times out unsent.
+	SkipWorkerPaused = "worker_paused"
+	// SkipWorkerQuota counts members whose remaining order quota of the period does not cover
+	// the order; their ticket times out unsent.
+	SkipWorkerQuota = "worker_quota"
 	// SkipNotInRoster counts drawn pool members passed over because the round's roster does not
 	// hold them; they are not attempts.
 	SkipNotInRoster = "not_in_roster"
@@ -79,6 +85,9 @@ const (
 	OutcomeRejected
 	// OutcomeRejectedWithoutFreeSlot: a signed reject at no free slot.
 	OutcomeRejectedWithoutFreeSlot
+	// OutcomeRejectedOverExemptBudget: a signed reject of an order above the Builder's
+	// reject-rate exemption bounds; it feeds neither rate.
+	OutcomeRejectedOverExemptBudget
 	// OutcomeTimeout: the Worker received the ticket and did not answer before its deadline.
 	OutcomeTimeout
 	// OutcomeUnsent: the ticket never reached the Worker (no stream, a send failure or its key
@@ -105,14 +114,17 @@ type Timing struct {
 // accepted in time after its order could no longer be recorded (VOIDED) feeds neither and is not
 // counted.
 type WorkerStats struct {
-	Received                uint64            `json:"received"`
-	Accepted                uint64            `json:"accepted"`
-	Rejected                uint64            `json:"rejected"`
-	RejectedWithoutFreeSlot uint64            `json:"rejected_without_free_slot"`
-	Timeouts                uint64            `json:"timeouts"`
-	Unsent                  uint64            `json:"unsent"`
-	ReceivedByTier          map[uint32]uint64 `json:"received_by_rtt_tier,omitempty"`
-	TimeoutsByTier          map[uint32]uint64 `json:"timeouts_by_rtt_tier,omitempty"`
+	Received                uint64 `json:"received"`
+	Accepted                uint64 `json:"accepted"`
+	Rejected                uint64 `json:"rejected"`
+	RejectedWithoutFreeSlot uint64 `json:"rejected_without_free_slot"`
+	// RejectedOverExemptBudget counts signed rejects of orders above the reject-rate exemption
+	// bounds; they are not in Received.
+	RejectedOverExemptBudget uint64            `json:"rejected_over_exempt_budget"`
+	Timeouts                 uint64            `json:"timeouts"`
+	Unsent                   uint64            `json:"unsent"`
+	ReceivedByTier           map[uint32]uint64 `json:"received_by_rtt_tier,omitempty"`
+	TimeoutsByTier           map[uint32]uint64 `json:"timeouts_by_rtt_tier,omitempty"`
 }
 
 // RejectRate is Rejected over Received; 0 without tickets.
@@ -210,6 +222,10 @@ func (r *Registry) WorkerOutcome(operator string, tier uint32, o Outcome) {
 	}
 	if o == OutcomeUnsent {
 		w.Unsent++
+		return
+	}
+	if o == OutcomeRejectedOverExemptBudget {
+		w.RejectedOverExemptBudget++
 		return
 	}
 	w.Received++

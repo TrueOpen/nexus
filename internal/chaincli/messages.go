@@ -490,6 +490,9 @@ type ProfileState struct {
 	// FinalizeTaskResult compares it against manifest.evidence_schema_hash: which schema the manifest
 	// claims to belong to does not count; the one locked on-chain does.
 	EvidenceSchemaHash string `json:"evidence_schema_hash"`
+	// VerifyRatioBps is PricingProfile.verify_ratio_bps: the verify share of an order's value,
+	// needed to derive order_value from max_output_tokens and price_bid as the chain does.
+	VerifyRatioBps uint32 `json:"verify_ratio_bps"`
 }
 
 type TaskAssignmentState struct {

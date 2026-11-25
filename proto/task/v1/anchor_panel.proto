@@ -1,0 +1,488 @@
+syntax = "proto3";
+package task.v1;
+
+import "shared/v1/amount.proto";
+import "shared/v1/common.proto";
+import "task/v1/anchor.proto";
+
+option go_package = "github.com/TrueOpen/nexus/gen/trueopen/task/v1;taskv1";
+
+// Verifier-panel anchor audit, late submission, per-Worker batch settlement and
+// the per-model brake. Everything in this file is used only by tasks whose
+// frozen VerificationParamsV1.anchor_audit_mode is 2, or whose frozen
+// batch_settlement_period_blocks is non-zero. With those parameters at their
+// zero defaults no message here is accepted and no state here is written.
+
+// WorkerBatchStatusV1 is the life cycle of one Worker's batch of one
+// settlement period.
+enum WorkerBatchStatusV1 {
+  // WORKER_BATCH_STATUS_V1_UNSPECIFIED identifies the corresponding protocol value.
+  WORKER_BATCH_STATUS_V1_UNSPECIFIED = 0;
+  // The period is current; tasks are still being added.
+  WORKER_BATCH_STATUS_V1_OPEN = 1;
+  // The period ended; some member task has no final verdict yet.
+  WORKER_BATCH_STATUS_V1_CLOSING = 2;
+  // A member task awaits a late submission.
+  WORKER_BATCH_STATUS_V1_SUSPENDED = 3;
+  // Every member task is final; the batch waits in the settlement queue.
+  WORKER_BATCH_STATUS_V1_QUEUED = 4;
+  // worker_due was paid.
+  WORKER_BATCH_STATUS_V1_SETTLED = 5;
+  // A member task ended with a final REJECT; the Worker is paid nothing for
+  // the period.
+  WORKER_BATCH_STATUS_V1_FORFEITED_CHEAT = 6;
+  // A member task ended LATE_EXPIRED; the Worker is paid nothing for the period.
+  WORKER_BATCH_STATUS_V1_FORFEITED_TIMEOUT = 7;
+}
+
+// AnchorPanelAssignmentV1 is what a drawn Verifier needs to audit one task.
+message AnchorPanelAssignmentV1 {
+  bytes task_id = 1;
+  uint32 panel_round = 2;
+  AnchorPanelRoundKindV1 kind = 3;
+  uint64 assignment_height = 4;
+  uint64 vote_deadline_height = 5;
+  // The audit row as of the query height.
+  AnchorAuditState audit = 6;
+  // Model and Profile version of the task, so the Verifier can select the
+  // registration it must verify against.
+  bytes model_id = 7;
+  uint32 profile_version = 8;
+  // anchor_registration_hash of the Profile version (zero when it sets none).
+  bytes registration_hash = 9;
+}
+
+// WorkerBatchState is the settlement batch of one Worker for one period: the
+// Worker's net of every member task is credited here instead of being paid per
+// task, and paid once when every member task is final.
+message WorkerBatchState {
+  string operator_address = 1;
+  uint64 period = 2;
+  uint32 task_count = 3;
+  // Member tasks without a final verdict (publication period and tasks
+  // awaiting a late submission included).
+  uint32 open_task_count = 4;
+  // Member tasks the beacon selected for an audit.
+  uint32 audited_count = 5;
+  WorkerBatchStatusV1 status = 6;
+  // Sum of the Worker net over member tasks that are final PASS so far.
+  shared.v1.Amount worker_due = 7;
+  uint64 queued_height = 8;
+  uint64 settled_height = 9;
+  // First member task that caused the forfeiture; zero otherwise.
+  bytes forfeiting_task_id = 10;
+  // Member tasks awaiting a late submission.
+  uint32 awaiting_late_count = 11;
+  // Amount redirected to the treasury by a forfeiture.
+  shared.v1.Amount forfeited_amount = 12;
+}
+
+// WorkerBatchTaskState records that one task belongs to one Worker batch and
+// what it contributes (key (operator_address, period, task_id)).
+message WorkerBatchTaskState {
+  string operator_address = 1;
+  uint64 period = 2;
+  bytes task_id = 3;
+  // Whether the task has a final verdict.
+  bool final = 4;
+  // The Worker net credited for the task once final PASS.
+  shared.v1.Amount worker_net = 5;
+}
+
+// WorkerTimeoutLedgerState records the settlement periods in which a Worker
+// had at least one anchor timeout, for the rolling count of
+// anchor_timeout_rolling_window_blocks. One entry per period however many
+// tasks timed out in it.
+message WorkerTimeoutLedgerState {
+  string operator_address = 1;
+  // Periods with a timeout, ascending; entries older than the window are pruned.
+  repeated uint64 periods = 2;
+  // Height of the timeout that opened each listed period.
+  repeated uint64 heights = 3;
+  // Periods for which the rolling-count slash was already applied.
+  repeated uint64 slashed_periods = 4;
+}
+
+// VerifierAuditStandingState is one Verifier's panel accounting: the value it
+// audited in the allowance window, its missed periods and its suspension.
+message VerifierAuditStandingState {
+  string operator_address = 1;
+  // Sum of the order values of tasks on whose panels the operator was drawn
+  // inside anchor_verifier_allowance_window_blocks.
+  shared.v1.Amount audited_value = 2;
+  // Settlement periods with at least one missed vote inside
+  // anchor_verifier_miss_window_blocks, ascending.
+  repeated uint64 missed_periods = 3;
+  // Number of times the missed-period count reached a multiple of
+  // anchor_verifier_miss_trigger_count inside the window.
+  uint32 miss_triggers_in_window = 4;
+  // The operator is not drawn while the current period is below this value.
+  uint64 suspended_until_period = 5;
+  // Set by a wrong vote: the operator's audit capability is switched off until
+  // it declares it again.
+  bool deactivated = 6;
+  uint64 updated_height = 7;
+}
+
+// AnchorBrakeState is the per-model, per-period REJECT statistic the brake is
+// decided on, and the effects withheld while it is tripped.
+message AnchorBrakeState {
+  bytes model_id = 1;
+  uint64 period = 2;
+  // Audits of the model finalised in the period.
+  uint32 audited = 3;
+  // Of those, audits finalised REJECT.
+  uint32 cases = 4;
+  bool tripped = 5;
+  uint64 tripped_height = 6;
+  // cases / audited of this period and the baseline it was compared with, in
+  // basis points.
+  uint32 rate_bps = 7;
+  uint32 baseline_bps = 8;
+  // Number of slashes and forfeitures withheld while tripped.
+  uint32 pending_effects = 9;
+  // Set by MsgReleaseAnchorBrake.
+  bool released = 10;
+  // Whether the release applied (true) or discarded (false) the pending effects.
+  bool applied = 11;
+  uint64 released_height = 12;
+}
+
+// MsgSubmitAnchorPanelVote is a drawn Verifier's vote on a selected audit
+// (anchor_audit_mode 2): PASS (the proof holds), REJECT (it does not) or
+// UNAVAILABLE (the recorded material could not be obtained). The outer Cosmos
+// signer is the current service address of a member of the named round. One
+// vote per member per round; an identical replay is a NOOP and a different
+// second vote is refused. Two equal votes decide the round.
+message MsgSubmitAnchorPanelVote {
+  bytes task_id = 1;
+  uint32 panel_round = 2;
+  // Must equal the recorded opening hash.
+  bytes opening_hash = 3;
+  // Must equal the recorded Worker proof hash.
+  bytes proof_hash = 4;
+  AnchorVerdictV1 verdict = 5;
+  // PASS and REJECT list exactly the sampled positions; empty for UNAVAILABLE.
+  repeated AnchorPositionVerdictV1 verdicts = 6;
+  string verifier_operator_address = 7;
+  string submitter_address = 8;
+}
+
+// MsgSubmitAnchorPanelVoteResponse reports the round after the vote.
+message MsgSubmitAnchorPanelVoteResponse {
+  // Result of the round; UNSPECIFIED while it is open.
+  AnchorVerdictV1 round_result = 1;
+  bool round_closed = 2;
+  shared.v1.MutationStatusV1 status = 3;
+}
+
+// MsgRequestAnchorReaudit asks for one more panel round on a provisional
+// verdict, by three Verifiers that were on no earlier panel of the task. Any
+// account may send it, once per task, while the verdict is in its publication
+// period. The re-audit fee is escrowed from the opener and refunded only if
+// the re-audit overturns the provisional verdict.
+message MsgRequestAnchorReaudit {
+  bytes task_id = 1;
+  string opener_address = 2;
+  // The opener refuses to pay more than this for the re-audit.
+  shared.v1.Amount max_fee = 3;
+}
+
+// MsgRequestAnchorReauditResponse reports the opened round and the escrowed fee.
+message MsgRequestAnchorReauditResponse {
+  uint32 panel_round = 1;
+  shared.v1.Amount fee = 2;
+  shared.v1.MutationStatusV1 status = 3;
+}
+
+// MsgReleaseAnchorBrake ends a tripped brake of one model and period: the
+// withheld slashes and forfeitures are applied or discarded. The signer is the
+// governance authority.
+message MsgReleaseAnchorBrake {
+  string authority = 1;
+  bytes model_id = 2;
+  uint64 period = 3;
+  // true applies the pending effects, false discards them.
+  bool apply = 4;
+}
+
+// MsgReleaseAnchorBrakeResponse reports how many pending effects were resolved.
+message MsgReleaseAnchorBrakeResponse {
+  uint32 resolved_effects = 1;
+  shared.v1.MutationStatusV1 status = 2;
+}
+
+// QueryAnchorPanelAssignmentsRequest pages over the open panel rounds one
+// Verifier is a member of and has not voted in.
+message QueryAnchorPanelAssignmentsRequest {
+  string verifier_operator_address = 1;
+  // start_after resumes after this task id (exclusive); empty starts at the beginning.
+  bytes start_after = 2;
+  // limit caps the page (default 50, maximum 200).
+  uint32 limit = 3;
+}
+
+// QueryAnchorPanelAssignmentsResponse lists the assignments by task id.
+message QueryAnchorPanelAssignmentsResponse {
+  repeated AnchorPanelAssignmentV1 assignments = 1;
+  // next is the start_after of the following page; empty at the end.
+  bytes next = 2;
+}
+
+// QueryAnchorAuditsUnderReviewRequest pages over selected audits that are not
+// final yet in panel mode: awaiting a panel, in a round, in their publication
+// period or awaiting a late submission. Off-chain programs use it to decide
+// which material must be kept and may be relayed.
+message QueryAnchorAuditsUnderReviewRequest {
+  // start_after resumes after this task id (exclusive); empty starts at the beginning.
+  bytes start_after = 1;
+  // limit caps the page (default 100, maximum 500).
+  uint32 limit = 2;
+}
+
+// QueryAnchorAuditsUnderReviewResponse lists the audits by task id.
+message QueryAnchorAuditsUnderReviewResponse {
+  repeated AnchorAuditState audits = 1;
+  // next is the start_after of the following page; empty at the end.
+  bytes next = 2;
+}
+
+// QueryWorkerLateSubmissionsRequest names one Worker.
+message QueryWorkerLateSubmissionsRequest {
+  string worker_operator_address = 1;
+}
+
+// WorkerLateSubmissionV1 is one audit of a Worker that awaits a late submission.
+message WorkerLateSubmissionV1 {
+  bytes task_id = 1;
+  AnchorTimeoutReasonV1 timeout_reason = 2;
+  uint64 timeout_recorded_height = 3;
+  uint64 late_deadline_height = 4;
+  AnchorLateStateV1 late_state = 5;
+}
+
+// QueryWorkerLateSubmissionsResponse lists the Worker's audits in
+// AWAITING_LATE or LATE_SUBMITTED, oldest deadline first.
+message QueryWorkerLateSubmissionsResponse {
+  repeated WorkerLateSubmissionV1 submissions = 1;
+}
+
+// QueryWorkerBatchRequest names one Worker and one settlement period.
+message QueryWorkerBatchRequest {
+  string operator_address = 1;
+  uint64 period = 2;
+}
+
+// QueryWorkerBatchResponse returns the batch.
+message QueryWorkerBatchResponse {
+  WorkerBatchState batch = 1;
+}
+
+// QueryWorkerBatchesRequest pages over one Worker's batches, newest period first.
+message QueryWorkerBatchesRequest {
+  string operator_address = 1;
+  // start_before resumes below this period (exclusive); zero starts at the newest.
+  uint64 start_before = 2;
+  // limit caps the page (default 30, maximum 200).
+  uint32 limit = 3;
+}
+
+// QueryWorkerBatchesResponse lists the batches.
+message QueryWorkerBatchesResponse {
+  repeated WorkerBatchState batches = 1;
+  // next is the start_before of the following page; zero at the end.
+  uint64 next = 2;
+}
+
+// QueryWorkerBatchTasksRequest pages over the member tasks of one batch.
+message QueryWorkerBatchTasksRequest {
+  string operator_address = 1;
+  uint64 period = 2;
+  // start_after resumes after this task id (exclusive); empty starts at the beginning.
+  bytes start_after = 3;
+  // limit caps the page (default 100, maximum 500).
+  uint32 limit = 4;
+}
+
+// QueryWorkerBatchTasksResponse lists the member tasks by task id.
+message QueryWorkerBatchTasksResponse {
+  repeated WorkerBatchTaskState tasks = 1;
+  // next is the start_after of the following page; empty at the end.
+  bytes next = 2;
+}
+
+// QueryVerifierAuditStandingRequest names one Verifier.
+message QueryVerifierAuditStandingRequest {
+  string operator_address = 1;
+}
+
+// QueryVerifierAuditStandingResponse returns the Verifier's panel accounting
+// and the allowance its current bond gives it.
+message QueryVerifierAuditStandingResponse {
+  VerifierAuditStandingState standing = 1;
+  // effective bond / anchor_verifier_bond_multiple: the value the operator may
+  // have audited inside the allowance window.
+  shared.v1.Amount allowance_limit = 2;
+}
+
+// QueryAnchorBrakeRequest names one model; period zero means the current period.
+message QueryAnchorBrakeRequest {
+  bytes model_id = 1;
+  uint64 period = 2;
+}
+
+// QueryAnchorBrakeResponse returns the brake statistic of the model and period.
+message QueryAnchorBrakeResponse {
+  AnchorBrakeState brake = 1;
+}
+
+// EventAnchorProofRecorded is emitted when a Worker's proof is recorded for a
+// selected audit; in panel mode it opens the first panel round.
+message EventAnchorProofRecorded {
+  bytes task_id = 1;
+  string worker_operator_address = 2;
+  bytes proof_hash = 3;
+  uint64 height = 4;
+  // Whether the proof arrived after a recorded timeout.
+  bool late = 5;
+  uint32 audit_mode = 6;
+}
+
+// EventAnchorPanelRoundOpened is emitted when the Verifier window of a panel
+// round opens; Builders collect hand-raises for it.
+message EventAnchorPanelRoundOpened {
+  bytes task_id = 1;
+  uint32 panel_round = 2;
+  AnchorPanelRoundKindV1 kind = 3;
+  uint64 open_height = 4;
+}
+
+// EventAnchorPanelAssigned is emitted when the members of a round are drawn.
+message EventAnchorPanelAssigned {
+  bytes task_id = 1;
+  uint32 panel_round = 2;
+  repeated string members = 3;
+  uint64 vote_deadline_height = 4;
+}
+
+// EventAnchorPanelVote is emitted for every accepted panel vote.
+message EventAnchorPanelVote {
+  bytes task_id = 1;
+  uint32 panel_round = 2;
+  string verifier_operator_address = 3;
+  AnchorVerdictV1 verdict = 4;
+}
+
+// EventAnchorPanelRoundClosed is emitted when a round closes.
+message EventAnchorPanelRoundClosed {
+  bytes task_id = 1;
+  uint32 panel_round = 2;
+  // PASS, REJECT, UNAVAILABLE, or NO_VERDICT for a round without two equal votes.
+  AnchorVerdictV1 result = 3;
+  uint32 vote_count = 4;
+}
+
+// EventAnchorProvisionalVerdict is emitted when a round gives PASS or REJECT:
+// the verdict is published and becomes final at publication_end_height unless
+// a re-audit is requested.
+message EventAnchorProvisionalVerdict {
+  bytes task_id = 1;
+  AnchorVerdictV1 verdict = 2;
+  uint64 publication_end_height = 3;
+}
+
+// EventAnchorReauditRequested is emitted when a re-audit is paid for.
+message EventAnchorReauditRequested {
+  bytes task_id = 1;
+  string opener_address = 2;
+  uint32 panel_round = 3;
+  shared.v1.Amount fee = 4;
+}
+
+// EventAnchorWorkerTimeout is emitted when a Worker timeout is recorded for a
+// selected audit in panel mode.
+message EventAnchorWorkerTimeout {
+  bytes task_id = 1;
+  string worker_operator_address = 2;
+  AnchorTimeoutReasonV1 reason = 3;
+  uint64 late_deadline_height = 4;
+  // Number of settlement periods with a timeout inside the rolling window,
+  // this one included.
+  uint32 periods_in_window = 5;
+  // Whether the rolling-count slash was applied for this period.
+  bool slashed = 6;
+}
+
+// EventAnchorLateSubmitted is emitted when a late proof is recorded.
+message EventAnchorLateSubmitted {
+  bytes task_id = 1;
+  string worker_operator_address = 2;
+  uint64 height = 3;
+}
+
+// EventAnchorLateExpired is emitted when late_deadline_height passes without an
+// accepted late submission.
+message EventAnchorLateExpired {
+  bytes task_id = 1;
+  string worker_operator_address = 2;
+  uint64 height = 3;
+}
+
+// EventWorkerBatchQueued is emitted when a batch enters the settlement queue.
+message EventWorkerBatchQueued {
+  string operator_address = 1;
+  uint64 period = 2;
+  shared.v1.Amount worker_due = 3;
+}
+
+// EventWorkerBatchSettled is emitted when a batch is paid.
+message EventWorkerBatchSettled {
+  string operator_address = 1;
+  uint64 period = 2;
+  shared.v1.Amount paid = 3;
+  uint32 task_count = 4;
+}
+
+// EventWorkerBatchForfeited is emitted when a batch is forfeited.
+message EventWorkerBatchForfeited {
+  string operator_address = 1;
+  uint64 period = 2;
+  WorkerBatchStatusV1 status = 3;
+  bytes forfeiting_task_id = 4;
+  // Whether the forfeiture is withheld by a tripped brake.
+  bool withheld = 5;
+}
+
+// EventAnchorBrakeTripped is emitted when the brake of a model trips for a period.
+message EventAnchorBrakeTripped {
+  bytes model_id = 1;
+  uint64 period = 2;
+  uint32 cases = 3;
+  uint32 rate_bps = 4;
+  uint32 baseline_bps = 5;
+}
+
+// EventAnchorBrakeReleased is emitted when the authority releases a brake.
+message EventAnchorBrakeReleased {
+  bytes model_id = 1;
+  uint64 period = 2;
+  bool applied = 3;
+  uint32 resolved_effects = 4;
+}
+
+// EventWorkerDispatchPaused is emitted when dispatch to a Worker is paused
+// because one of its anchor audits awaits a late submission.
+message EventWorkerDispatchPaused {
+  string operator_address = 1;
+  // Bit set as in ServiceBondState.pause_reasons after the change.
+  uint32 pause_reasons = 2;
+  bytes task_id = 3;
+}
+
+// EventWorkerDispatchResumed is emitted when the last late-submission pause of
+// a Worker is lifted.
+message EventWorkerDispatchResumed {
+  string operator_address = 1;
+  // Bit set as in ServiceBondState.pause_reasons after the change.
+  uint32 pause_reasons = 2;
+}

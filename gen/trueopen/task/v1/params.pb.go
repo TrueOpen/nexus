@@ -702,8 +702,61 @@ type VerificationParamsV1 struct {
 	AnchorProofWindowBlocks uint64 `protobuf:"varint,12,opt,name=anchor_proof_window_blocks,json=anchorProofWindowBlocks,proto3" json:"anchor_proof_window_blocks,omitempty"`
 	// Basis points of D taken when the Worker never opened or never proved by the deadline.
 	AnchorTimeoutSlashBps uint32 `protobuf:"varint,13,opt,name=anchor_timeout_slash_bps,json=anchorTimeoutSlashBps,proto3" json:"anchor_timeout_slash_bps,omitempty"`
-	unknownFields         protoimpl.UnknownFields
-	sizeCache             protoimpl.SizeCache
+	// Who audits a selected anchor task, frozen into each task at acceptance:
+	// 0 and 1 = consensus-validator vote, 2 = Verifier panel.
+	AnchorAuditMode uint32 `protobuf:"varint,18,opt,name=anchor_audit_mode,json=anchorAuditMode,proto3" json:"anchor_audit_mode,omitempty"`
+	// Verifiers drawn per panel round and equal votes that decide it.
+	AnchorPanelSize      uint32 `protobuf:"varint,19,opt,name=anchor_panel_size,json=anchorPanelSize,proto3" json:"anchor_panel_size,omitempty"`
+	AnchorPanelThreshold uint32 `protobuf:"varint,20,opt,name=anchor_panel_threshold,json=anchorPanelThreshold,proto3" json:"anchor_panel_threshold,omitempty"`
+	// Blocks after the draw within which a panel member's vote is accepted.
+	AnchorPanelVoteWindowBlocks uint64 `protobuf:"varint,21,opt,name=anchor_panel_vote_window_blocks,json=anchorPanelVoteWindowBlocks,proto3" json:"anchor_panel_vote_window_blocks,omitempty"`
+	// Publication period of a provisional verdict; a re-audit may be requested in it.
+	AnchorPublicationWindowBlocks uint64 `protobuf:"varint,22,opt,name=anchor_publication_window_blocks,json=anchorPublicationWindowBlocks,proto3" json:"anchor_publication_window_blocks,omitempty"`
+	// Blocks after a Worker timeout within which a late submission is accepted.
+	AnchorLateWindowBlocks uint64 `protobuf:"varint,23,opt,name=anchor_late_window_blocks,json=anchorLateWindowBlocks,proto3" json:"anchor_late_window_blocks,omitempty"`
+	// Settlement periods with a timeout inside the rolling window that are not
+	// slashed, and the length of that window.
+	AnchorTimeoutFreeCount           uint32 `protobuf:"varint,24,opt,name=anchor_timeout_free_count,json=anchorTimeoutFreeCount,proto3" json:"anchor_timeout_free_count,omitempty"`
+	AnchorTimeoutRollingWindowBlocks uint64 `protobuf:"varint,25,opt,name=anchor_timeout_rolling_window_blocks,json=anchorTimeoutRollingWindowBlocks,proto3" json:"anchor_timeout_rolling_window_blocks,omitempty"`
+	// Share of a wrong voter's slash paid to the opener of the re-audit that
+	// overturned the verdict, in basis points of the slashable base.
+	AnchorReauditRewardBps uint32 `protobuf:"varint,26,opt,name=anchor_reaudit_reward_bps,json=anchorReauditRewardBps,proto3" json:"anchor_reaudit_reward_bps,omitempty"`
+	// Slash of a panel member whose PASS or REJECT is the opposite of the final verdict.
+	AnchorVerifierWrongVoteSlashBps uint32 `protobuf:"varint,27,opt,name=anchor_verifier_wrong_vote_slash_bps,json=anchorVerifierWrongVoteSlashBps,proto3" json:"anchor_verifier_wrong_vote_slash_bps,omitempty"`
+	// Missed-vote rule: every anchor_verifier_miss_trigger_count missed periods
+	// inside anchor_verifier_miss_window_blocks suspend the Verifier for one
+	// period; from the anchor_verifier_miss_slash_from_trigger-th such trigger
+	// in the window it is also slashed anchor_verifier_miss_slash_bps.
+	AnchorVerifierMissTriggerCount     uint32 `protobuf:"varint,28,opt,name=anchor_verifier_miss_trigger_count,json=anchorVerifierMissTriggerCount,proto3" json:"anchor_verifier_miss_trigger_count,omitempty"`
+	AnchorVerifierMissWindowBlocks     uint64 `protobuf:"varint,29,opt,name=anchor_verifier_miss_window_blocks,json=anchorVerifierMissWindowBlocks,proto3" json:"anchor_verifier_miss_window_blocks,omitempty"`
+	AnchorVerifierMissSlashFromTrigger uint32 `protobuf:"varint,30,opt,name=anchor_verifier_miss_slash_from_trigger,json=anchorVerifierMissSlashFromTrigger,proto3" json:"anchor_verifier_miss_slash_from_trigger,omitempty"`
+	AnchorVerifierMissSlashBps         uint32 `protobuf:"varint,31,opt,name=anchor_verifier_miss_slash_bps,json=anchorVerifierMissSlashBps,proto3" json:"anchor_verifier_miss_slash_bps,omitempty"`
+	// A Verifier's effective bond must be at least this multiple of the order
+	// value it was drawn to audit inside anchor_verifier_allowance_window_blocks.
+	AnchorVerifierBondMultiple          uint32 `protobuf:"varint,32,opt,name=anchor_verifier_bond_multiple,json=anchorVerifierBondMultiple,proto3" json:"anchor_verifier_bond_multiple,omitempty"`
+	AnchorVerifierAllowanceWindowBlocks uint64 `protobuf:"varint,33,opt,name=anchor_verifier_allowance_window_blocks,json=anchorVerifierAllowanceWindowBlocks,proto3" json:"anchor_verifier_allowance_window_blocks,omitempty"`
+	// Per-model brake: tripped for a period with at least anchor_brake_min_cases
+	// REJECT verdicts whose rate is at least anchor_brake_multiple_x1000 / 1000
+	// times the mean rate of the previous anchor_brake_baseline_periods periods.
+	AnchorBrakeMinCases        uint32 `protobuf:"varint,34,opt,name=anchor_brake_min_cases,json=anchorBrakeMinCases,proto3" json:"anchor_brake_min_cases,omitempty"`
+	AnchorBrakeMultipleX1000   uint32 `protobuf:"varint,35,opt,name=anchor_brake_multiple_x1000,json=anchorBrakeMultipleX1000,proto3" json:"anchor_brake_multiple_x1000,omitempty"`
+	AnchorBrakeBaselinePeriods uint32 `protobuf:"varint,36,opt,name=anchor_brake_baseline_periods,json=anchorBrakeBaselinePeriods,proto3" json:"anchor_brake_baseline_periods,omitempty"`
+	// Length of a settlement period; non-zero switches the Worker's net of every
+	// task to per-period batch settlement. At most
+	// batch_settlement_max_workers_per_block queued batches are paid per block.
+	BatchSettlementPeriodBlocks       uint64 `protobuf:"varint,37,opt,name=batch_settlement_period_blocks,json=batchSettlementPeriodBlocks,proto3" json:"batch_settlement_period_blocks,omitempty"`
+	BatchSettlementMaxWorkersPerBlock uint32 `protobuf:"varint,38,opt,name=batch_settlement_max_workers_per_block,json=batchSettlementMaxWorkersPerBlock,proto3" json:"batch_settlement_max_workers_per_block,omitempty"`
+	// Logprob-mode variant: slash of a Worker judged cheating and of a Verifier
+	// whose result is the opposite of the final verdict. Zero keeps the
+	// existing consequences.
+	LogprobRejectSlashBps            uint32 `protobuf:"varint,39,opt,name=logprob_reject_slash_bps,json=logprobRejectSlashBps,proto3" json:"logprob_reject_slash_bps,omitempty"`
+	LogprobVerifierWrongVoteSlashBps uint32 `protobuf:"varint,40,opt,name=logprob_verifier_wrong_vote_slash_bps,json=logprobVerifierWrongVoteSlashBps,proto3" json:"logprob_verifier_wrong_vote_slash_bps,omitempty"`
+	// Tolerance of the signed input token count: a receipt whose prompt token
+	// count is below the attested count minus this value is refused. Zero means
+	// the attestation is ignored.
+	InputTokenTolerance uint64 `protobuf:"varint,41,opt,name=input_token_tolerance,json=inputTokenTolerance,proto3" json:"input_token_tolerance,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
 }
 
 func (x *VerificationParamsV1) Reset() {
@@ -802,6 +855,174 @@ func (x *VerificationParamsV1) GetAnchorProofWindowBlocks() uint64 {
 func (x *VerificationParamsV1) GetAnchorTimeoutSlashBps() uint32 {
 	if x != nil {
 		return x.AnchorTimeoutSlashBps
+	}
+	return 0
+}
+
+func (x *VerificationParamsV1) GetAnchorAuditMode() uint32 {
+	if x != nil {
+		return x.AnchorAuditMode
+	}
+	return 0
+}
+
+func (x *VerificationParamsV1) GetAnchorPanelSize() uint32 {
+	if x != nil {
+		return x.AnchorPanelSize
+	}
+	return 0
+}
+
+func (x *VerificationParamsV1) GetAnchorPanelThreshold() uint32 {
+	if x != nil {
+		return x.AnchorPanelThreshold
+	}
+	return 0
+}
+
+func (x *VerificationParamsV1) GetAnchorPanelVoteWindowBlocks() uint64 {
+	if x != nil {
+		return x.AnchorPanelVoteWindowBlocks
+	}
+	return 0
+}
+
+func (x *VerificationParamsV1) GetAnchorPublicationWindowBlocks() uint64 {
+	if x != nil {
+		return x.AnchorPublicationWindowBlocks
+	}
+	return 0
+}
+
+func (x *VerificationParamsV1) GetAnchorLateWindowBlocks() uint64 {
+	if x != nil {
+		return x.AnchorLateWindowBlocks
+	}
+	return 0
+}
+
+func (x *VerificationParamsV1) GetAnchorTimeoutFreeCount() uint32 {
+	if x != nil {
+		return x.AnchorTimeoutFreeCount
+	}
+	return 0
+}
+
+func (x *VerificationParamsV1) GetAnchorTimeoutRollingWindowBlocks() uint64 {
+	if x != nil {
+		return x.AnchorTimeoutRollingWindowBlocks
+	}
+	return 0
+}
+
+func (x *VerificationParamsV1) GetAnchorReauditRewardBps() uint32 {
+	if x != nil {
+		return x.AnchorReauditRewardBps
+	}
+	return 0
+}
+
+func (x *VerificationParamsV1) GetAnchorVerifierWrongVoteSlashBps() uint32 {
+	if x != nil {
+		return x.AnchorVerifierWrongVoteSlashBps
+	}
+	return 0
+}
+
+func (x *VerificationParamsV1) GetAnchorVerifierMissTriggerCount() uint32 {
+	if x != nil {
+		return x.AnchorVerifierMissTriggerCount
+	}
+	return 0
+}
+
+func (x *VerificationParamsV1) GetAnchorVerifierMissWindowBlocks() uint64 {
+	if x != nil {
+		return x.AnchorVerifierMissWindowBlocks
+	}
+	return 0
+}
+
+func (x *VerificationParamsV1) GetAnchorVerifierMissSlashFromTrigger() uint32 {
+	if x != nil {
+		return x.AnchorVerifierMissSlashFromTrigger
+	}
+	return 0
+}
+
+func (x *VerificationParamsV1) GetAnchorVerifierMissSlashBps() uint32 {
+	if x != nil {
+		return x.AnchorVerifierMissSlashBps
+	}
+	return 0
+}
+
+func (x *VerificationParamsV1) GetAnchorVerifierBondMultiple() uint32 {
+	if x != nil {
+		return x.AnchorVerifierBondMultiple
+	}
+	return 0
+}
+
+func (x *VerificationParamsV1) GetAnchorVerifierAllowanceWindowBlocks() uint64 {
+	if x != nil {
+		return x.AnchorVerifierAllowanceWindowBlocks
+	}
+	return 0
+}
+
+func (x *VerificationParamsV1) GetAnchorBrakeMinCases() uint32 {
+	if x != nil {
+		return x.AnchorBrakeMinCases
+	}
+	return 0
+}
+
+func (x *VerificationParamsV1) GetAnchorBrakeMultipleX1000() uint32 {
+	if x != nil {
+		return x.AnchorBrakeMultipleX1000
+	}
+	return 0
+}
+
+func (x *VerificationParamsV1) GetAnchorBrakeBaselinePeriods() uint32 {
+	if x != nil {
+		return x.AnchorBrakeBaselinePeriods
+	}
+	return 0
+}
+
+func (x *VerificationParamsV1) GetBatchSettlementPeriodBlocks() uint64 {
+	if x != nil {
+		return x.BatchSettlementPeriodBlocks
+	}
+	return 0
+}
+
+func (x *VerificationParamsV1) GetBatchSettlementMaxWorkersPerBlock() uint32 {
+	if x != nil {
+		return x.BatchSettlementMaxWorkersPerBlock
+	}
+	return 0
+}
+
+func (x *VerificationParamsV1) GetLogprobRejectSlashBps() uint32 {
+	if x != nil {
+		return x.LogprobRejectSlashBps
+	}
+	return 0
+}
+
+func (x *VerificationParamsV1) GetLogprobVerifierWrongVoteSlashBps() uint32 {
+	if x != nil {
+		return x.LogprobVerifierWrongVoteSlashBps
+	}
+	return 0
+}
+
+func (x *VerificationParamsV1) GetInputTokenTolerance() uint64 {
+	if x != nil {
+		return x.InputTokenTolerance
 	}
 	return 0
 }
@@ -1889,7 +2110,7 @@ const file_task_v1_params_proto_rawDesc = "" +
 	"\ak_stake\x18\t \x01(\rR\x06kStake\x127\n" +
 	"\x18candidate_weight_ppm_max\x18\n" +
 	" \x01(\rR\x15candidateWeightPpmMax\x12U\n" +
-	"(max_weighted_draw_attempts_per_selection\x18\v \x01(\rR#maxWeightedDrawAttemptsPerSelection\"\xef\x05\n" +
+	"(max_weighted_draw_attempts_per_selection\x18\v \x01(\rR#maxWeightedDrawAttemptsPerSelection\"\xb3\x12\n" +
 	"\x14VerificationParamsV1\x12B\n" +
 	"\x1eworker_infer_timeout_slash_bps\x18\x01 \x01(\rR\x1aworkerInferTimeoutSlashBps\x12D\n" +
 	"\x1fresult_reveal_missing_slash_bps\x18\x04 \x01(\rR\x1bresultRevealMissingSlashBps\x125\n" +
@@ -1901,7 +2122,31 @@ const file_task_v1_params_proto_rawDesc = "" +
 	" \x01(\rR\x18anchorAuditRiskMarginBps\x129\n" +
 	"\x19anchor_open_window_blocks\x18\v \x01(\x04R\x16anchorOpenWindowBlocks\x12;\n" +
 	"\x1aanchor_proof_window_blocks\x18\f \x01(\x04R\x17anchorProofWindowBlocks\x127\n" +
-	"\x18anchor_timeout_slash_bps\x18\r \x01(\rR\x15anchorTimeoutSlashBpsJ\x04\b\x02\x10\x03J\x04\b\x03\x10\x04J\x04\b\x06\x10\aR\x19verifier_miss_jail_blocksR#verifier_result_missing_jail_blocksR!verifier_miss_clear_success_count\"\xc0\b\n" +
+	"\x18anchor_timeout_slash_bps\x18\r \x01(\rR\x15anchorTimeoutSlashBps\x12*\n" +
+	"\x11anchor_audit_mode\x18\x12 \x01(\rR\x0fanchorAuditMode\x12*\n" +
+	"\x11anchor_panel_size\x18\x13 \x01(\rR\x0fanchorPanelSize\x124\n" +
+	"\x16anchor_panel_threshold\x18\x14 \x01(\rR\x14anchorPanelThreshold\x12D\n" +
+	"\x1fanchor_panel_vote_window_blocks\x18\x15 \x01(\x04R\x1banchorPanelVoteWindowBlocks\x12G\n" +
+	" anchor_publication_window_blocks\x18\x16 \x01(\x04R\x1danchorPublicationWindowBlocks\x129\n" +
+	"\x19anchor_late_window_blocks\x18\x17 \x01(\x04R\x16anchorLateWindowBlocks\x129\n" +
+	"\x19anchor_timeout_free_count\x18\x18 \x01(\rR\x16anchorTimeoutFreeCount\x12N\n" +
+	"$anchor_timeout_rolling_window_blocks\x18\x19 \x01(\x04R anchorTimeoutRollingWindowBlocks\x129\n" +
+	"\x19anchor_reaudit_reward_bps\x18\x1a \x01(\rR\x16anchorReauditRewardBps\x12M\n" +
+	"$anchor_verifier_wrong_vote_slash_bps\x18\x1b \x01(\rR\x1fanchorVerifierWrongVoteSlashBps\x12J\n" +
+	"\"anchor_verifier_miss_trigger_count\x18\x1c \x01(\rR\x1eanchorVerifierMissTriggerCount\x12J\n" +
+	"\"anchor_verifier_miss_window_blocks\x18\x1d \x01(\x04R\x1eanchorVerifierMissWindowBlocks\x12S\n" +
+	"'anchor_verifier_miss_slash_from_trigger\x18\x1e \x01(\rR\"anchorVerifierMissSlashFromTrigger\x12B\n" +
+	"\x1eanchor_verifier_miss_slash_bps\x18\x1f \x01(\rR\x1aanchorVerifierMissSlashBps\x12A\n" +
+	"\x1danchor_verifier_bond_multiple\x18  \x01(\rR\x1aanchorVerifierBondMultiple\x12T\n" +
+	"'anchor_verifier_allowance_window_blocks\x18! \x01(\x04R#anchorVerifierAllowanceWindowBlocks\x123\n" +
+	"\x16anchor_brake_min_cases\x18\" \x01(\rR\x13anchorBrakeMinCases\x12=\n" +
+	"\x1banchor_brake_multiple_x1000\x18# \x01(\rR\x18anchorBrakeMultipleX1000\x12A\n" +
+	"\x1danchor_brake_baseline_periods\x18$ \x01(\rR\x1aanchorBrakeBaselinePeriods\x12C\n" +
+	"\x1ebatch_settlement_period_blocks\x18% \x01(\x04R\x1bbatchSettlementPeriodBlocks\x12Q\n" +
+	"&batch_settlement_max_workers_per_block\x18& \x01(\rR!batchSettlementMaxWorkersPerBlock\x127\n" +
+	"\x18logprob_reject_slash_bps\x18' \x01(\rR\x15logprobRejectSlashBps\x12O\n" +
+	"%logprob_verifier_wrong_vote_slash_bps\x18( \x01(\rR logprobVerifierWrongVoteSlashBps\x122\n" +
+	"\x15input_token_tolerance\x18) \x01(\x04R\x13inputTokenToleranceJ\x04\b\x02\x10\x03J\x04\b\x03\x10\x04J\x04\b\x06\x10\aR\x19verifier_miss_jail_blocksR#verifier_result_missing_jail_blocksR!verifier_miss_clear_success_count\"\xc0\b\n" +
 	"\x15EvidenceLimitParamsV1\x12A\n" +
 	"\x1dmax_evidence_retention_blocks\x18\x02 \x01(\x04R\x1amaxEvidenceRetentionBlocks\x12Y\n" +
 	"*max_infer_evidence_commitments_per_receipt\x18\x03 \x01(\rR%maxInferEvidenceCommitmentsPerReceipt\x12J\n" +

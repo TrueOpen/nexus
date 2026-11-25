@@ -165,7 +165,12 @@ type taskFSM struct {
 	// anchorOnlyRound is set by reconcile when the chain's round 1 assignment selected no
 	// Verifier: the task is verified by the anchor audit alone. It is a chain fact re-read on
 	// every reconciliation, so it is not persisted.
-	anchorOnlyRound        bool
+	anchorOnlyRound bool
+	// panel is the open Verifier panel round of the task's anchor audit this Builder collects
+	// hand-raises for (panel.go); nil when there is none. panelRetired is the highest round that
+	// left the hand-raise stage here, so an older read of the chain cannot reopen it.
+	panel                  *panelRoundState
+	panelRetired           uint32
 	verifierProposalClosed bool
 	// verifierRandomnessTried records that the attempt due once the window randomness height has
 	// passed was made, so each new block does not repeat it.
@@ -191,6 +196,18 @@ type taskFSM struct {
 	// inferDeadlineHeight is the chain-height deadline for the winner's receipt, from the on-chain
 	// task (reconcile).
 	inferDeadlineHeight uint64
+	// receiptHeldSince is the height an anchor-commitment receipt began waiting for this
+	// Builder's data-ready (receiptWaitsForDataReadyLocked); 0 while none waits. Persisted, so a
+	// restart does not start the bounded hold again.
+	receiptHeldSince uint64
+	// receiptHoldBlocks and receiptHoldDeadlineMargin bound that hold; 0 takes the defaults.
+	receiptHoldBlocks         uint64
+	receiptHoldDeadlineMargin uint64
+	// receiptRelayCleared: this process knows whether the chain already holds the receipt --
+	// it accepted the receipt itself, or it has reconciled the task with the chain since it
+	// started. Until then a restored receipt is not relayed from the per-height retry, which
+	// would send again a receipt the chain may already hold.
+	receiptRelayCleared bool
 	sampleSeed          []byte // from the chain's SampleReady (sole authoritative source; nexus never derives it)
 	deadlines           types.Deadlines
 	outputHash          []byte
@@ -360,6 +377,7 @@ func (f *taskFSM) acceptInferReceipt(receipt types.InferReceiptSubmission) (bool
 	}
 	f.outputHash = receipt.OutputHash
 	f.inferReceipt = receipt
+	f.receiptRelayCleared = true
 	f.emit(EvInferReceiptReceived, 0)
 	if err := f.save(); err != nil {
 		return false, err
@@ -425,8 +443,10 @@ func (f *taskFSM) publishOpenVerify() {
 func (f *taskFSM) onInferReceiptAccepted() {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.receiptRelayCleared = true
 	if !f.receiptOnChain {
 		f.receiptOnChain = true
+		f.receiptHeldSince = 0
 		f.save()
 	}
 	// Every on-chain reconcile reaches here: OPEN_VERIFY is retried until this Builder is
@@ -511,6 +531,12 @@ func (f *taskFSM) checkDataReady() {
 			f.log.Warn("data-ready check failed; will retry on the next trigger", "task_id", f.taskID, "err", err)
 		} else if ready && query.InferReceiptHash == hex.EncodeToString(f.inferReceipt.InferReceiptHash) {
 			f.dataReady = true
+			// A receipt held back for data-ready (receiptWaitsForDataReadyLocked) goes out now,
+			// unless the chain already holds it or this process cannot tell yet (a restored
+			// receipt before the first reconcile).
+			if f.anchorReceiptUnsentLocked() {
+				f.submitOpenVerifyLocked()
+			}
 			f.publishOpenVerify()
 			f.scheduleVerifierProposalLocked()
 		}
@@ -637,6 +663,9 @@ func (f *taskFSM) onWinnerRecorded(winner string, assignedSet []types.BuilderRef
 func (f *taskFSM) onVerifierHandraise(hr *taskv1.VerifierHandraiseV1) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.panelHandraiseLocked(hr) {
+		return // a hand-raise for the open Verifier panel round of an anchor audit (panel.go)
+	}
 	if f.state != types.Assigned || !bytes.Equal(hr.GetTaskId(), f.taskIDBytes()) {
 		return
 	}
@@ -966,6 +995,11 @@ func (f *taskFSM) submitOpenVerifyLocked() {
 			"task_id", f.taskID, "handraises", len(f.verifierHR))
 		return
 	}
+	if f.receiptWaitsForDataReadyLocked() {
+		f.log.Debug("waiting for the finalized result before submitting an anchor-commitment receipt",
+			"task_id", f.taskID)
+		return
+	}
 	// OpenVerifyTx carries no sample_seed -- the chain derives the seed after OpenVerify
 	// from the aggregated future proposer-VRF beacon (SampleReady event).
 	//
@@ -1004,6 +1038,127 @@ func (f *taskFSM) submitOpenVerifyLocked() {
 	f.save()
 	f.log.Info("OpenVerifyTx submitted", "task_id", f.taskID, "verifier_handraise", len(f.verifierHR),
 		"tx_hash", hex.EncodeToString(res.TxHash))
+}
+
+// anchorEvidenceKind is shared.v1 EVIDENCE_KIND_WORKER_ANCHOR_OPENING, the commitment whose
+// presence in a receipt makes the chain verify the task by the anchor audit alone.
+const anchorEvidenceKind = 5
+
+// The bounded hold of an anchor-commitment receipt (receiptWaitsForDataReadyLocked).
+const (
+	// defaultAnchorReceiptHoldBlocks is how long the receipt waits for this Builder's data-ready
+	// before it is relayed anyway. An honest Worker finalizes its result within seconds of the
+	// receipt; this is minutes at any block time in use.
+	defaultAnchorReceiptHoldBlocks = 600
+	// defaultAnchorReceiptHoldDeadlineMargin is how far before the infer deadline (and the
+	// receipt's own expiry) the hold ends whatever its age: far above the few blocks before the
+	// deadline at which a Worker submits its receipt itself, and enough for a relay to be included
+	// and retried.
+	defaultAnchorReceiptHoldDeadlineMargin = 200
+)
+
+// receiptWaitsForDataReadyLocked holds back a receipt that carries the anchor commitment until
+// this Builder is data-ready for it, i.e. the Worker's FinalizeTaskResult succeeded here with this
+// receipt. For such a task the chain draws no Verifier, so no Verifier proposal ever states that a
+// Builder holds the result: relaying the receipt at once would let the round close and pay a
+// Worker that never delivered the output.
+//
+// The hold is a best-effort check, not a condition of payment, and it is bounded: a result that
+// failed to finalize here for a reason of this Builder's (a storage fault, a restart during the
+// upload) while it finalized on the others must not cost an honest Worker its receipt, which the
+// chain would answer with an infer timeout. After receiptHoldBlocks from the first refusal, or
+// once the infer deadline or the receipt's expiry is within receiptHoldDeadlineMargin, the receipt
+// is relayed as it is and the fact is logged as an alert. Every Builder of the task's group
+// decides for itself, so a Builder that is data-ready relays at once whatever another one holds.
+// The check is retried on every new height. It does not hold a receipt back when this Builder
+// has no task data plane to ask, or holds another input version than the accepted one (it can
+// never be data-ready then, and the input is not what the user is waiting for). Caller must hold
+// the lock.
+func (f *taskFSM) receiptWaitsForDataReadyLocked() bool {
+	if f.resultReadiness == nil || f.versionMismatch || !f.anchorReceiptLocked() {
+		return false
+	}
+	if f.dataReadyLocked() {
+		return false
+	}
+	if f.receiptHeldSince == 0 && f.observedHeight != 0 {
+		// Before a height is observed the hold has no start; it gets one at the first height.
+		f.receiptHeldSince = f.observedHeight
+		f.save()
+	}
+	if reason := f.receiptHoldOverLocked(); reason != "" {
+		f.log.Warn("relaying an anchor-commitment receipt without the finalized result on this Builder",
+			"alert", AlertAnchorReceiptRelayedWithoutResult, "task_id", f.taskID, "worker", f.winner,
+			"why", reason, "held_since", f.receiptHeldSince, "height", f.observedHeight,
+			"infer_deadline_height", f.inferDeadlineHeight)
+		return false
+	}
+	return true
+}
+
+// AlertAnchorReceiptRelayedWithoutResult names the alert logged when the bounded hold of an
+// anchor-commitment receipt ends without this Builder's data-ready.
+const AlertAnchorReceiptRelayedWithoutResult = "anchor_receipt_relayed_without_result"
+
+// receiptHoldOverLocked reports why the bounded hold has ended, or "" while it lasts. Caller must
+// hold the lock.
+func (f *taskFSM) receiptHoldOverLocked() string {
+	hold, margin := f.receiptHoldBlocks, f.receiptHoldDeadlineMargin
+	if hold == 0 {
+		hold = defaultAnchorReceiptHoldBlocks
+	}
+	if margin == 0 {
+		margin = defaultAnchorReceiptHoldDeadlineMargin
+	}
+	h := f.observedHeight
+	// On a network whose infer window is shorter than twice the margin, a fixed margin would
+	// end the hold the moment it begins. The margin is at most half of what was left of the
+	// window when the hold began, so the hold always covers the first half of it.
+	near := func(deadline uint64) (uint64, bool) {
+		if deadline == 0 {
+			return 0, false
+		}
+		m := margin
+		if f.receiptHeldSince != 0 && deadline > f.receiptHeldSince {
+			m = min(m, (deadline-f.receiptHeldSince)/2)
+		}
+		return m, h+m >= deadline
+	}
+	if f.receiptHeldSince != 0 && h >= f.receiptHeldSince+hold {
+		return fmt.Sprintf("held for %d blocks", h-f.receiptHeldSince)
+	}
+	if m, ok := near(f.inferDeadlineHeight); ok {
+		return fmt.Sprintf("the infer deadline %d is within %d blocks", f.inferDeadlineHeight, m)
+	}
+	if m, ok := near(f.inferReceipt.ExpiryHeight); ok {
+		return fmt.Sprintf("the receipt expires at %d, within %d blocks", f.inferReceipt.ExpiryHeight, m)
+	}
+	return ""
+}
+
+// anchorReceiptLocked reports whether the held receipt carries the anchor commitment. Caller must
+// hold the lock.
+func (f *taskFSM) anchorReceiptLocked() bool {
+	for _, c := range f.inferReceipt.EvidenceCommitments {
+		if c.Kind == anchorEvidenceKind {
+			return true
+		}
+	}
+	return false
+}
+
+// anchorReceiptUnsentLocked reports an anchor-commitment receipt this Builder holds, is in the
+// group to submit, and has neither submitted nor seen on chain. Caller must hold the lock.
+func (f *taskFSM) anchorReceiptUnsentLocked() bool {
+	if len(f.outputHash) == 0 || f.openVerifySubmitted || f.receiptOnChain || f.terminal || f.state != types.Assigned ||
+		!f.anchorReceiptLocked() || !f.receiptRelayCleared {
+		return false
+	}
+	set := f.assignedSet
+	if len(set) == 0 {
+		set = f.builderSet
+	}
+	return f.inProposalGroup(set) && !f.resubmitHeldLocked(&f.receiptTx)
 }
 
 // onOpenVerifyAccepted: on-chain open-verify included: record the selected Verifiers and
@@ -1306,6 +1461,12 @@ func (f *taskFSM) validVerifyCommit(commit *taskv1.VerifyCommitV1) bool {
 }
 
 func (f *taskFSM) validVerifierHandraise(hr *taskv1.VerifierHandraiseV1) bool {
+	return f.validVerifierHandraiseRound(hr, nodecontract.SupportedVerifyRoundV1)
+}
+
+// validVerifierHandraiseRound checks a hand-raise for the given verify round: round 1 of an
+// ordinary task, or the open panel round of an anchor audit.
+func (f *taskFSM) validVerifierHandraiseRound(hr *taskv1.VerifierHandraiseV1, round uint64) bool {
 	candidate := hr.GetMember().GetOperatorAddress()
 	outputHash, receiptHash := f.acceptedReceiptHashesLocked()
 	switch {
@@ -1320,7 +1481,7 @@ func (f *taskFSM) validVerifierHandraise(hr *taskv1.VerifierHandraiseV1) bool {
 	case hr.GetDuty() != sharedv1.Duty_DUTY_VERIFIER:
 		f.log.Warn("drop verifier handraise whose duty is not DUTY_VERIFIER", "task_id", f.taskID,
 			"candidate", candidate, "duty", hr.GetDuty())
-	case uint64(hr.GetVerifyRound()) != nodecontract.SupportedVerifyRoundV1:
+	case uint64(hr.GetVerifyRound()) != round:
 		f.log.Warn("drop verifier handraise for an unsupported verify round", "task_id", f.taskID,
 			"candidate", candidate, "verify_round", hr.GetVerifyRound())
 	// The Verifier handraise binds infer_receipt_hash / output_hash; there is
@@ -1850,6 +2011,11 @@ func (f *taskFSM) onHeight(height uint64) {
 		return
 	}
 	f.observedHeight = height
+	if f.anchorReceiptUnsentLocked() {
+		// The receipt waits for data-ready (receiptWaitsForDataReadyLocked): a check that failed,
+		// or one a restart interrupted, is asked again on every new height.
+		f.submitOpenVerifyLocked()
+	}
 	f.onHeightVerifierProposalLocked()
 	f.trySettle()
 	check := f.followSubmittedTxsLocked()
@@ -2172,4 +2338,16 @@ func validateReceiptForOpenVerify(receipt types.InferReceiptSubmission, winner s
 		return fmt.Errorf("infer receipt is missing frozen InferReceiptV2 fields")
 	}
 	return nil
+}
+
+// receiptReconciled records that this process has read the task from the chain: whether the
+// chain holds the receipt is now known (receiptOnChain), and so is the infer deadline the bounded
+// receipt hold needs. Caller does not hold the lock.
+func (f *taskFSM) receiptReconciled(inferDeadline uint64) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.receiptRelayCleared = true
+	if inferDeadline != 0 {
+		f.inferDeadlineHeight = inferDeadline
+	}
 }

@@ -1054,8 +1054,11 @@ type OpenTaskHeader struct {
 	// signature is verified on its own and the stored SignedOrder is kept. A
 	// replacement (RBF) version must use a new key.
 	IdempotencyKey string `protobuf:"bytes,12,opt,name=idempotency_key,json=idempotencyKey,proto3" json:"idempotency_key,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// Optional signed statement of the order's input token count; the Builder
+	// relays it with the dispatch record (MsgRecordDispatch).
+	InputTokensAttestation *v11.OrderInputTokensAttestationV1 `protobuf:"bytes,13,opt,name=input_tokens_attestation,json=inputTokensAttestation,proto3" json:"input_tokens_attestation,omitempty"`
+	unknownFields          protoimpl.UnknownFields
+	sizeCache              protoimpl.SizeCache
 }
 
 func (x *OpenTaskHeader) Reset() {
@@ -1156,6 +1159,13 @@ func (x *OpenTaskHeader) GetIdempotencyKey() string {
 		return x.IdempotencyKey
 	}
 	return ""
+}
+
+func (x *OpenTaskHeader) GetInputTokensAttestation() *v11.OrderInputTokensAttestationV1 {
+	if x != nil {
+		return x.InputTokensAttestation
+	}
+	return nil
 }
 
 // OpenTaskRequest defines the OpenTaskRequest wire type.
@@ -4408,7 +4418,7 @@ var File_nexus_v1_ingress_proto protoreflect.FileDescriptor
 
 const file_nexus_v1_ingress_proto_rawDesc = "" +
 	"\n" +
-	"\x16nexus/v1/ingress.proto\x12\bnexus.v1\x1a\x17nexus/v1/dispatch.proto\x1a\x17nexus/v1/sdk_auth.proto\x1a\x18shared/v1/evidence.proto\x1a\x14task/v1/commit.proto\x1a\x16task/v1/dispatch.proto\x1a\x16task/v1/evidence.proto\x1a\x1btask/v1/infer_receipt.proto\x1a\x14task/v1/result.proto\"\xcd\x03\n" +
+	"\x16nexus/v1/ingress.proto\x12\bnexus.v1\x1a\x17nexus/v1/dispatch.proto\x1a\x17nexus/v1/sdk_auth.proto\x1a\x18shared/v1/evidence.proto\x1a\x14task/v1/commit.proto\x1a\x16task/v1/dispatch.proto\x1a\x16task/v1/evidence.proto\x1a\x1btask/v1/infer_receipt.proto\x1a\x1ctask/v1/msg_assignment.proto\x1a\x14task/v1/result.proto\"\xcd\x03\n" +
 	"\x13TaskDataObjectRefV1\x12\x1b\n" +
 	"\ttask_hash\x18\x01 \x01(\tR\btaskHash\x12\x1d\n" +
 	"\n" +
@@ -4471,7 +4481,7 @@ const file_nexus_v1_ingress_proto_rawDesc = "" +
 	" \x01(\x04R\fexpiryHeight\x12\x1c\n" +
 	"\tsignature\x18\v \x01(\fR\tsignature\x12=\n" +
 	"\rsession_grant\x18\f \x01(\v2\x18.nexus.v1.SessionGrantV1R\fsessionGrant\x12,\n" +
-	"\x12signature_chain_id\x18\r \x01(\x04R\x10signatureChainId\"\xd1\x03\n" +
+	"\x12signature_chain_id\x18\r \x01(\x04R\x10signatureChainId\"\xb3\x04\n" +
 	"\x0eOpenTaskHeader\x12%\n" +
 	"\x0eorder_envelope\x18\x01 \x01(\fR\rorderEnvelope\x12\x1f\n" +
 	"\vpayload_ref\x18\x02 \x01(\tR\n" +
@@ -4486,7 +4496,8 @@ const file_nexus_v1_ingress_proto_rawDesc = "" +
 	"input_hash\x18\n" +
 	" \x01(\tR\tinputHash\x12(\n" +
 	"\x10input_media_type\x18\v \x01(\tR\x0einputMediaType\x12'\n" +
-	"\x0fidempotency_key\x18\f \x01(\tR\x0eidempotencyKeyJ\x04\b\x03\x10\x04J\x04\b\b\x10\tR\tsignatureR\x10signature_scheme\"f\n" +
+	"\x0fidempotency_key\x18\f \x01(\tR\x0eidempotencyKey\x12`\n" +
+	"\x18input_tokens_attestation\x18\r \x01(\v2&.task.v1.OrderInputTokensAttestationV1R\x16inputTokensAttestationJ\x04\b\x03\x10\x04J\x04\b\b\x10\tR\tsignatureR\x10signature_scheme\"f\n" +
 	"\x0fOpenTaskRequest\x122\n" +
 	"\x06header\x18\x01 \x01(\v2\x18.nexus.v1.OpenTaskHeaderH\x00R\x06header\x12\x16\n" +
 	"\x05chunk\x18\x02 \x01(\fH\x00R\x05chunkB\a\n" +
@@ -4890,18 +4901,19 @@ var file_nexus_v1_ingress_proto_goTypes = []any{
 	(v1.EvidenceKind)(0),                           // 55: shared.v1.EvidenceKind
 	(*SessionGrantV1)(nil),                         // 56: nexus.v1.SessionGrantV1
 	(*SDKRequestEnvelopeV2)(nil),                   // 57: nexus.v1.SDKRequestEnvelopeV2
-	(OpenTaskStatusV1)(0),                          // 58: nexus.v1.OpenTaskStatusV1
-	(*DispatchResultHeaderV1)(nil),                 // 59: nexus.v1.DispatchResultHeaderV1
-	(v11.FinishReasonV1)(0),                        // 60: task.v1.FinishReasonV1
-	(*v11.InferReceiptV3)(nil),                     // 61: task.v1.InferReceiptV3
-	(*v11.ResultReceiptV3)(nil),                    // 62: task.v1.ResultReceiptV3
-	(*v11.VerifyCommitV1)(nil),                     // 63: task.v1.VerifyCommitV1
-	(v11.DispatchRejectCodeV1)(0),                  // 64: task.v1.DispatchRejectCodeV1
-	(*DispatchStreamRequest)(nil),                  // 65: nexus.v1.DispatchStreamRequest
-	(*ResumeOutputRequest)(nil),                    // 66: nexus.v1.ResumeOutputRequest
-	(*GetDispatchRosterRequest)(nil),               // 67: nexus.v1.GetDispatchRosterRequest
-	(*DispatchStreamResponse)(nil),                 // 68: nexus.v1.DispatchStreamResponse
-	(*GetDispatchRosterResponse)(nil),              // 69: nexus.v1.GetDispatchRosterResponse
+	(*v11.OrderInputTokensAttestationV1)(nil),      // 58: task.v1.OrderInputTokensAttestationV1
+	(OpenTaskStatusV1)(0),                          // 59: nexus.v1.OpenTaskStatusV1
+	(*DispatchResultHeaderV1)(nil),                 // 60: nexus.v1.DispatchResultHeaderV1
+	(v11.FinishReasonV1)(0),                        // 61: task.v1.FinishReasonV1
+	(*v11.InferReceiptV3)(nil),                     // 62: task.v1.InferReceiptV3
+	(*v11.ResultReceiptV3)(nil),                    // 63: task.v1.ResultReceiptV3
+	(*v11.VerifyCommitV1)(nil),                     // 64: task.v1.VerifyCommitV1
+	(v11.DispatchRejectCodeV1)(0),                  // 65: task.v1.DispatchRejectCodeV1
+	(*DispatchStreamRequest)(nil),                  // 66: nexus.v1.DispatchStreamRequest
+	(*ResumeOutputRequest)(nil),                    // 67: nexus.v1.ResumeOutputRequest
+	(*GetDispatchRosterRequest)(nil),               // 68: nexus.v1.GetDispatchRosterRequest
+	(*DispatchStreamResponse)(nil),                 // 69: nexus.v1.DispatchStreamResponse
+	(*GetDispatchRosterResponse)(nil),              // 70: nexus.v1.GetDispatchRosterResponse
 }
 var file_nexus_v1_ingress_proto_depIdxs = []int32{
 	0,  // 0: nexus.v1.TaskDataObjectRefV1.object_kind:type_name -> nexus.v1.TaskDataObjectKind
@@ -4914,99 +4926,100 @@ var file_nexus_v1_ingress_proto_depIdxs = []int32{
 	4,  // 7: nexus.v1.TaskDataRequestAuthV1.requester_kind:type_name -> nexus.v1.TaskDataRequesterKindV1
 	56, // 8: nexus.v1.TaskDataRequestAuthV1.session_grant:type_name -> nexus.v1.SessionGrantV1
 	57, // 9: nexus.v1.OpenTaskHeader.request_envelope:type_name -> nexus.v1.SDKRequestEnvelopeV2
-	11, // 10: nexus.v1.OpenTaskRequest.header:type_name -> nexus.v1.OpenTaskHeader
-	6,  // 11: nexus.v1.OpenTaskResponse.input_metadata:type_name -> nexus.v1.TaskDataObjectMetadataV1
-	9,  // 12: nexus.v1.OpenTaskResponse.input_confirmation:type_name -> nexus.v1.BuilderStorageConfirmationV1
-	58, // 13: nexus.v1.OpenTaskResponse.status:type_name -> nexus.v1.OpenTaskStatusV1
-	59, // 14: nexus.v1.OpenTaskResponse.dispatch_result:type_name -> nexus.v1.DispatchResultHeaderV1
-	5,  // 15: nexus.v1.UploadTaskResultObjectHeaderV1.object_ref:type_name -> nexus.v1.TaskDataObjectRefV1
-	10, // 16: nexus.v1.UploadTaskResultObjectHeaderV1.request_auth:type_name -> nexus.v1.TaskDataRequestAuthV1
-	14, // 17: nexus.v1.UploadTaskResultObjectRequest.header:type_name -> nexus.v1.UploadTaskResultObjectHeaderV1
-	6,  // 18: nexus.v1.UploadTaskResultObjectResponse.metadata:type_name -> nexus.v1.TaskDataObjectMetadataV1
-	10, // 19: nexus.v1.OutputStreamHeaderV2.request_auth:type_name -> nexus.v1.TaskDataRequestAuthV1
-	60, // 20: nexus.v1.OutputFinV1.finish_reason:type_name -> task.v1.FinishReasonV1
-	17, // 21: nexus.v1.UploadTaskOutputStreamRequest.header:type_name -> nexus.v1.OutputStreamHeaderV2
-	18, // 22: nexus.v1.UploadTaskOutputStreamRequest.chunk:type_name -> nexus.v1.OutputChunkV1
-	19, // 23: nexus.v1.UploadTaskOutputStreamRequest.fin:type_name -> nexus.v1.OutputFinV1
-	21, // 24: nexus.v1.UploadTaskOutputStreamResponse.progress:type_name -> nexus.v1.OutputStreamProgressV1
-	22, // 25: nexus.v1.UploadTaskOutputStreamResponse.result:type_name -> nexus.v1.OutputStreamResultV1
-	5,  // 26: nexus.v1.GetTaskDataMetadataRequest.object_ref:type_name -> nexus.v1.TaskDataObjectRefV1
-	10, // 27: nexus.v1.GetTaskDataMetadataRequest.request_auth:type_name -> nexus.v1.TaskDataRequestAuthV1
-	6,  // 28: nexus.v1.GetTaskDataMetadataResponse.metadata:type_name -> nexus.v1.TaskDataObjectMetadataV1
-	7,  // 29: nexus.v1.GetTaskDataMetadataResponse.evidence_bundle:type_name -> nexus.v1.EvidenceBundleSummaryV1
-	61, // 30: nexus.v1.GetTaskDataMetadataResponse.infer_receipt:type_name -> task.v1.InferReceiptV3
-	5,  // 31: nexus.v1.FetchTaskDataRequest.object_ref:type_name -> nexus.v1.TaskDataObjectRefV1
-	8,  // 32: nexus.v1.FetchTaskDataRequest.range:type_name -> nexus.v1.ByteRangeV1
-	10, // 33: nexus.v1.FetchTaskDataRequest.request_auth:type_name -> nexus.v1.TaskDataRequestAuthV1
-	5,  // 34: nexus.v1.FetchTaskDataHeaderV1.object_ref:type_name -> nexus.v1.TaskDataObjectRefV1
-	8,  // 35: nexus.v1.FetchTaskDataHeaderV1.served_range:type_name -> nexus.v1.ByteRangeV1
-	27, // 36: nexus.v1.FetchTaskDataResponse.header:type_name -> nexus.v1.FetchTaskDataHeaderV1
-	28, // 37: nexus.v1.FetchTaskDataResponse.chunk:type_name -> nexus.v1.FetchTaskDataChunkV1
-	61, // 38: nexus.v1.FinalizeTaskResultRequest.receipt:type_name -> task.v1.InferReceiptV3
-	10, // 39: nexus.v1.FinalizeTaskResultRequest.request_auth:type_name -> nexus.v1.TaskDataRequestAuthV1
-	55, // 40: nexus.v1.FinalizeTaskResultRequest.evidence_kind:type_name -> shared.v1.EvidenceKind
-	9,  // 41: nexus.v1.FinalizeTaskResultResponse.output_confirmation:type_name -> nexus.v1.BuilderStorageConfirmationV1
-	9,  // 42: nexus.v1.FinalizeTaskResultResponse.evidence_bundle_confirmations:type_name -> nexus.v1.BuilderStorageConfirmationV1
-	62, // 43: nexus.v1.FinalizeVerifierEvidenceRequest.receipt:type_name -> task.v1.ResultReceiptV3
-	10, // 44: nexus.v1.FinalizeVerifierEvidenceRequest.request_auth:type_name -> nexus.v1.TaskDataRequestAuthV1
-	9,  // 45: nexus.v1.FinalizeVerifierEvidenceResponse.evidence_bundle_confirmation:type_name -> nexus.v1.BuilderStorageConfirmationV1
-	61, // 46: nexus.v1.SubmitInferReceiptRequest.receipt:type_name -> task.v1.InferReceiptV3
-	63, // 47: nexus.v1.SubmitVerifyCommitRequest.commit:type_name -> task.v1.VerifyCommitV1
-	62, // 48: nexus.v1.SubmitVerifyResultRequest.receipt:type_name -> task.v1.ResultReceiptV3
-	57, // 49: nexus.v1.SubscribeOutputRequest.request_envelope:type_name -> nexus.v1.SDKRequestEnvelopeV2
-	18, // 50: nexus.v1.SubscribeOutputResponse.chunk:type_name -> nexus.v1.OutputChunkV1
-	19, // 51: nexus.v1.SubscribeOutputResponse.fin:type_name -> nexus.v1.OutputFinV1
-	59, // 52: nexus.v1.SubscribeOutputResponse.dispatch_result:type_name -> nexus.v1.DispatchResultHeaderV1
-	57, // 53: nexus.v1.AckOutputRequest.request_envelope:type_name -> nexus.v1.SDKRequestEnvelopeV2
-	57, // 54: nexus.v1.GetTaskEventsRequest.request_envelope:type_name -> nexus.v1.SDKRequestEnvelopeV2
-	48, // 55: nexus.v1.GetTaskEventsResponse.detail:type_name -> nexus.v1.TaskEventDetailV1
-	64, // 56: nexus.v1.TaskEventDetailV1.reject_code:type_name -> task.v1.DispatchRejectCodeV1
-	57, // 57: nexus.v1.PrepareChallengeRequest.request_envelope:type_name -> nexus.v1.SDKRequestEnvelopeV2
-	51, // 58: nexus.v1.PrepareChallengeResponse.estimated_bond:type_name -> nexus.v1.Coin
-	43, // 59: nexus.v1.ResumeOutputResponse.frame:type_name -> nexus.v1.SubscribeOutputResponse
-	12, // 60: nexus.v1.IngressAPI.OpenTask:input_type -> nexus.v1.OpenTaskRequest
-	42, // 61: nexus.v1.IngressAPI.SubscribeOutput:input_type -> nexus.v1.SubscribeOutputRequest
-	44, // 62: nexus.v1.IngressAPI.AckOutput:input_type -> nexus.v1.AckOutputRequest
-	52, // 63: nexus.v1.IngressAPI.GetTaskStatus:input_type -> nexus.v1.GetTaskStatusRequest
-	46, // 64: nexus.v1.IngressAPI.GetTaskEvents:input_type -> nexus.v1.GetTaskEventsRequest
-	49, // 65: nexus.v1.IngressAPI.PrepareChallenge:input_type -> nexus.v1.PrepareChallengeRequest
-	15, // 66: nexus.v1.IngressAPI.UploadTaskResultObject:input_type -> nexus.v1.UploadTaskResultObjectRequest
-	20, // 67: nexus.v1.IngressAPI.UploadTaskOutputStream:input_type -> nexus.v1.UploadTaskOutputStreamRequest
-	24, // 68: nexus.v1.IngressAPI.GetTaskDataMetadata:input_type -> nexus.v1.GetTaskDataMetadataRequest
-	26, // 69: nexus.v1.IngressAPI.FetchTaskData:input_type -> nexus.v1.FetchTaskDataRequest
-	30, // 70: nexus.v1.IngressAPI.FinalizeTaskResult:input_type -> nexus.v1.FinalizeTaskResultRequest
-	32, // 71: nexus.v1.IngressAPI.FinalizeVerifierEvidence:input_type -> nexus.v1.FinalizeVerifierEvidenceRequest
-	34, // 72: nexus.v1.IngressAPI.SubmitInferReceipt:input_type -> nexus.v1.SubmitInferReceiptRequest
-	36, // 73: nexus.v1.IngressAPI.SubmitVerifyCommit:input_type -> nexus.v1.SubmitVerifyCommitRequest
-	38, // 74: nexus.v1.IngressAPI.SubmitVerifyResult:input_type -> nexus.v1.SubmitVerifyResultRequest
-	40, // 75: nexus.v1.IngressAPI.SubmitModelSupportConfirmation:input_type -> nexus.v1.SubmitModelSupportConfirmationRequest
-	65, // 76: nexus.v1.IngressAPI.DispatchStream:input_type -> nexus.v1.DispatchStreamRequest
-	66, // 77: nexus.v1.IngressAPI.ResumeOutput:input_type -> nexus.v1.ResumeOutputRequest
-	67, // 78: nexus.v1.IngressAPI.GetDispatchRoster:input_type -> nexus.v1.GetDispatchRosterRequest
-	13, // 79: nexus.v1.IngressAPI.OpenTask:output_type -> nexus.v1.OpenTaskResponse
-	43, // 80: nexus.v1.IngressAPI.SubscribeOutput:output_type -> nexus.v1.SubscribeOutputResponse
-	45, // 81: nexus.v1.IngressAPI.AckOutput:output_type -> nexus.v1.AckOutputResponse
-	53, // 82: nexus.v1.IngressAPI.GetTaskStatus:output_type -> nexus.v1.GetTaskStatusResponse
-	47, // 83: nexus.v1.IngressAPI.GetTaskEvents:output_type -> nexus.v1.GetTaskEventsResponse
-	50, // 84: nexus.v1.IngressAPI.PrepareChallenge:output_type -> nexus.v1.PrepareChallengeResponse
-	16, // 85: nexus.v1.IngressAPI.UploadTaskResultObject:output_type -> nexus.v1.UploadTaskResultObjectResponse
-	23, // 86: nexus.v1.IngressAPI.UploadTaskOutputStream:output_type -> nexus.v1.UploadTaskOutputStreamResponse
-	25, // 87: nexus.v1.IngressAPI.GetTaskDataMetadata:output_type -> nexus.v1.GetTaskDataMetadataResponse
-	29, // 88: nexus.v1.IngressAPI.FetchTaskData:output_type -> nexus.v1.FetchTaskDataResponse
-	31, // 89: nexus.v1.IngressAPI.FinalizeTaskResult:output_type -> nexus.v1.FinalizeTaskResultResponse
-	33, // 90: nexus.v1.IngressAPI.FinalizeVerifierEvidence:output_type -> nexus.v1.FinalizeVerifierEvidenceResponse
-	35, // 91: nexus.v1.IngressAPI.SubmitInferReceipt:output_type -> nexus.v1.SubmitInferReceiptResponse
-	37, // 92: nexus.v1.IngressAPI.SubmitVerifyCommit:output_type -> nexus.v1.SubmitVerifyCommitResponse
-	39, // 93: nexus.v1.IngressAPI.SubmitVerifyResult:output_type -> nexus.v1.SubmitVerifyResultResponse
-	41, // 94: nexus.v1.IngressAPI.SubmitModelSupportConfirmation:output_type -> nexus.v1.SubmitModelSupportConfirmationResponse
-	68, // 95: nexus.v1.IngressAPI.DispatchStream:output_type -> nexus.v1.DispatchStreamResponse
-	54, // 96: nexus.v1.IngressAPI.ResumeOutput:output_type -> nexus.v1.ResumeOutputResponse
-	69, // 97: nexus.v1.IngressAPI.GetDispatchRoster:output_type -> nexus.v1.GetDispatchRosterResponse
-	79, // [79:98] is the sub-list for method output_type
-	60, // [60:79] is the sub-list for method input_type
-	60, // [60:60] is the sub-list for extension type_name
-	60, // [60:60] is the sub-list for extension extendee
-	0,  // [0:60] is the sub-list for field type_name
+	58, // 10: nexus.v1.OpenTaskHeader.input_tokens_attestation:type_name -> task.v1.OrderInputTokensAttestationV1
+	11, // 11: nexus.v1.OpenTaskRequest.header:type_name -> nexus.v1.OpenTaskHeader
+	6,  // 12: nexus.v1.OpenTaskResponse.input_metadata:type_name -> nexus.v1.TaskDataObjectMetadataV1
+	9,  // 13: nexus.v1.OpenTaskResponse.input_confirmation:type_name -> nexus.v1.BuilderStorageConfirmationV1
+	59, // 14: nexus.v1.OpenTaskResponse.status:type_name -> nexus.v1.OpenTaskStatusV1
+	60, // 15: nexus.v1.OpenTaskResponse.dispatch_result:type_name -> nexus.v1.DispatchResultHeaderV1
+	5,  // 16: nexus.v1.UploadTaskResultObjectHeaderV1.object_ref:type_name -> nexus.v1.TaskDataObjectRefV1
+	10, // 17: nexus.v1.UploadTaskResultObjectHeaderV1.request_auth:type_name -> nexus.v1.TaskDataRequestAuthV1
+	14, // 18: nexus.v1.UploadTaskResultObjectRequest.header:type_name -> nexus.v1.UploadTaskResultObjectHeaderV1
+	6,  // 19: nexus.v1.UploadTaskResultObjectResponse.metadata:type_name -> nexus.v1.TaskDataObjectMetadataV1
+	10, // 20: nexus.v1.OutputStreamHeaderV2.request_auth:type_name -> nexus.v1.TaskDataRequestAuthV1
+	61, // 21: nexus.v1.OutputFinV1.finish_reason:type_name -> task.v1.FinishReasonV1
+	17, // 22: nexus.v1.UploadTaskOutputStreamRequest.header:type_name -> nexus.v1.OutputStreamHeaderV2
+	18, // 23: nexus.v1.UploadTaskOutputStreamRequest.chunk:type_name -> nexus.v1.OutputChunkV1
+	19, // 24: nexus.v1.UploadTaskOutputStreamRequest.fin:type_name -> nexus.v1.OutputFinV1
+	21, // 25: nexus.v1.UploadTaskOutputStreamResponse.progress:type_name -> nexus.v1.OutputStreamProgressV1
+	22, // 26: nexus.v1.UploadTaskOutputStreamResponse.result:type_name -> nexus.v1.OutputStreamResultV1
+	5,  // 27: nexus.v1.GetTaskDataMetadataRequest.object_ref:type_name -> nexus.v1.TaskDataObjectRefV1
+	10, // 28: nexus.v1.GetTaskDataMetadataRequest.request_auth:type_name -> nexus.v1.TaskDataRequestAuthV1
+	6,  // 29: nexus.v1.GetTaskDataMetadataResponse.metadata:type_name -> nexus.v1.TaskDataObjectMetadataV1
+	7,  // 30: nexus.v1.GetTaskDataMetadataResponse.evidence_bundle:type_name -> nexus.v1.EvidenceBundleSummaryV1
+	62, // 31: nexus.v1.GetTaskDataMetadataResponse.infer_receipt:type_name -> task.v1.InferReceiptV3
+	5,  // 32: nexus.v1.FetchTaskDataRequest.object_ref:type_name -> nexus.v1.TaskDataObjectRefV1
+	8,  // 33: nexus.v1.FetchTaskDataRequest.range:type_name -> nexus.v1.ByteRangeV1
+	10, // 34: nexus.v1.FetchTaskDataRequest.request_auth:type_name -> nexus.v1.TaskDataRequestAuthV1
+	5,  // 35: nexus.v1.FetchTaskDataHeaderV1.object_ref:type_name -> nexus.v1.TaskDataObjectRefV1
+	8,  // 36: nexus.v1.FetchTaskDataHeaderV1.served_range:type_name -> nexus.v1.ByteRangeV1
+	27, // 37: nexus.v1.FetchTaskDataResponse.header:type_name -> nexus.v1.FetchTaskDataHeaderV1
+	28, // 38: nexus.v1.FetchTaskDataResponse.chunk:type_name -> nexus.v1.FetchTaskDataChunkV1
+	62, // 39: nexus.v1.FinalizeTaskResultRequest.receipt:type_name -> task.v1.InferReceiptV3
+	10, // 40: nexus.v1.FinalizeTaskResultRequest.request_auth:type_name -> nexus.v1.TaskDataRequestAuthV1
+	55, // 41: nexus.v1.FinalizeTaskResultRequest.evidence_kind:type_name -> shared.v1.EvidenceKind
+	9,  // 42: nexus.v1.FinalizeTaskResultResponse.output_confirmation:type_name -> nexus.v1.BuilderStorageConfirmationV1
+	9,  // 43: nexus.v1.FinalizeTaskResultResponse.evidence_bundle_confirmations:type_name -> nexus.v1.BuilderStorageConfirmationV1
+	63, // 44: nexus.v1.FinalizeVerifierEvidenceRequest.receipt:type_name -> task.v1.ResultReceiptV3
+	10, // 45: nexus.v1.FinalizeVerifierEvidenceRequest.request_auth:type_name -> nexus.v1.TaskDataRequestAuthV1
+	9,  // 46: nexus.v1.FinalizeVerifierEvidenceResponse.evidence_bundle_confirmation:type_name -> nexus.v1.BuilderStorageConfirmationV1
+	62, // 47: nexus.v1.SubmitInferReceiptRequest.receipt:type_name -> task.v1.InferReceiptV3
+	64, // 48: nexus.v1.SubmitVerifyCommitRequest.commit:type_name -> task.v1.VerifyCommitV1
+	63, // 49: nexus.v1.SubmitVerifyResultRequest.receipt:type_name -> task.v1.ResultReceiptV3
+	57, // 50: nexus.v1.SubscribeOutputRequest.request_envelope:type_name -> nexus.v1.SDKRequestEnvelopeV2
+	18, // 51: nexus.v1.SubscribeOutputResponse.chunk:type_name -> nexus.v1.OutputChunkV1
+	19, // 52: nexus.v1.SubscribeOutputResponse.fin:type_name -> nexus.v1.OutputFinV1
+	60, // 53: nexus.v1.SubscribeOutputResponse.dispatch_result:type_name -> nexus.v1.DispatchResultHeaderV1
+	57, // 54: nexus.v1.AckOutputRequest.request_envelope:type_name -> nexus.v1.SDKRequestEnvelopeV2
+	57, // 55: nexus.v1.GetTaskEventsRequest.request_envelope:type_name -> nexus.v1.SDKRequestEnvelopeV2
+	48, // 56: nexus.v1.GetTaskEventsResponse.detail:type_name -> nexus.v1.TaskEventDetailV1
+	65, // 57: nexus.v1.TaskEventDetailV1.reject_code:type_name -> task.v1.DispatchRejectCodeV1
+	57, // 58: nexus.v1.PrepareChallengeRequest.request_envelope:type_name -> nexus.v1.SDKRequestEnvelopeV2
+	51, // 59: nexus.v1.PrepareChallengeResponse.estimated_bond:type_name -> nexus.v1.Coin
+	43, // 60: nexus.v1.ResumeOutputResponse.frame:type_name -> nexus.v1.SubscribeOutputResponse
+	12, // 61: nexus.v1.IngressAPI.OpenTask:input_type -> nexus.v1.OpenTaskRequest
+	42, // 62: nexus.v1.IngressAPI.SubscribeOutput:input_type -> nexus.v1.SubscribeOutputRequest
+	44, // 63: nexus.v1.IngressAPI.AckOutput:input_type -> nexus.v1.AckOutputRequest
+	52, // 64: nexus.v1.IngressAPI.GetTaskStatus:input_type -> nexus.v1.GetTaskStatusRequest
+	46, // 65: nexus.v1.IngressAPI.GetTaskEvents:input_type -> nexus.v1.GetTaskEventsRequest
+	49, // 66: nexus.v1.IngressAPI.PrepareChallenge:input_type -> nexus.v1.PrepareChallengeRequest
+	15, // 67: nexus.v1.IngressAPI.UploadTaskResultObject:input_type -> nexus.v1.UploadTaskResultObjectRequest
+	20, // 68: nexus.v1.IngressAPI.UploadTaskOutputStream:input_type -> nexus.v1.UploadTaskOutputStreamRequest
+	24, // 69: nexus.v1.IngressAPI.GetTaskDataMetadata:input_type -> nexus.v1.GetTaskDataMetadataRequest
+	26, // 70: nexus.v1.IngressAPI.FetchTaskData:input_type -> nexus.v1.FetchTaskDataRequest
+	30, // 71: nexus.v1.IngressAPI.FinalizeTaskResult:input_type -> nexus.v1.FinalizeTaskResultRequest
+	32, // 72: nexus.v1.IngressAPI.FinalizeVerifierEvidence:input_type -> nexus.v1.FinalizeVerifierEvidenceRequest
+	34, // 73: nexus.v1.IngressAPI.SubmitInferReceipt:input_type -> nexus.v1.SubmitInferReceiptRequest
+	36, // 74: nexus.v1.IngressAPI.SubmitVerifyCommit:input_type -> nexus.v1.SubmitVerifyCommitRequest
+	38, // 75: nexus.v1.IngressAPI.SubmitVerifyResult:input_type -> nexus.v1.SubmitVerifyResultRequest
+	40, // 76: nexus.v1.IngressAPI.SubmitModelSupportConfirmation:input_type -> nexus.v1.SubmitModelSupportConfirmationRequest
+	66, // 77: nexus.v1.IngressAPI.DispatchStream:input_type -> nexus.v1.DispatchStreamRequest
+	67, // 78: nexus.v1.IngressAPI.ResumeOutput:input_type -> nexus.v1.ResumeOutputRequest
+	68, // 79: nexus.v1.IngressAPI.GetDispatchRoster:input_type -> nexus.v1.GetDispatchRosterRequest
+	13, // 80: nexus.v1.IngressAPI.OpenTask:output_type -> nexus.v1.OpenTaskResponse
+	43, // 81: nexus.v1.IngressAPI.SubscribeOutput:output_type -> nexus.v1.SubscribeOutputResponse
+	45, // 82: nexus.v1.IngressAPI.AckOutput:output_type -> nexus.v1.AckOutputResponse
+	53, // 83: nexus.v1.IngressAPI.GetTaskStatus:output_type -> nexus.v1.GetTaskStatusResponse
+	47, // 84: nexus.v1.IngressAPI.GetTaskEvents:output_type -> nexus.v1.GetTaskEventsResponse
+	50, // 85: nexus.v1.IngressAPI.PrepareChallenge:output_type -> nexus.v1.PrepareChallengeResponse
+	16, // 86: nexus.v1.IngressAPI.UploadTaskResultObject:output_type -> nexus.v1.UploadTaskResultObjectResponse
+	23, // 87: nexus.v1.IngressAPI.UploadTaskOutputStream:output_type -> nexus.v1.UploadTaskOutputStreamResponse
+	25, // 88: nexus.v1.IngressAPI.GetTaskDataMetadata:output_type -> nexus.v1.GetTaskDataMetadataResponse
+	29, // 89: nexus.v1.IngressAPI.FetchTaskData:output_type -> nexus.v1.FetchTaskDataResponse
+	31, // 90: nexus.v1.IngressAPI.FinalizeTaskResult:output_type -> nexus.v1.FinalizeTaskResultResponse
+	33, // 91: nexus.v1.IngressAPI.FinalizeVerifierEvidence:output_type -> nexus.v1.FinalizeVerifierEvidenceResponse
+	35, // 92: nexus.v1.IngressAPI.SubmitInferReceipt:output_type -> nexus.v1.SubmitInferReceiptResponse
+	37, // 93: nexus.v1.IngressAPI.SubmitVerifyCommit:output_type -> nexus.v1.SubmitVerifyCommitResponse
+	39, // 94: nexus.v1.IngressAPI.SubmitVerifyResult:output_type -> nexus.v1.SubmitVerifyResultResponse
+	41, // 95: nexus.v1.IngressAPI.SubmitModelSupportConfirmation:output_type -> nexus.v1.SubmitModelSupportConfirmationResponse
+	69, // 96: nexus.v1.IngressAPI.DispatchStream:output_type -> nexus.v1.DispatchStreamResponse
+	54, // 97: nexus.v1.IngressAPI.ResumeOutput:output_type -> nexus.v1.ResumeOutputResponse
+	70, // 98: nexus.v1.IngressAPI.GetDispatchRoster:output_type -> nexus.v1.GetDispatchRosterResponse
+	80, // [80:99] is the sub-list for method output_type
+	61, // [61:80] is the sub-list for method input_type
+	61, // [61:61] is the sub-list for extension type_name
+	61, // [61:61] is the sub-list for extension extendee
+	0,  // [0:61] is the sub-list for field type_name
 }
 
 func init() { file_nexus_v1_ingress_proto_init() }

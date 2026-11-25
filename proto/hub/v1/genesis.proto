@@ -73,6 +73,8 @@ message GenesisState {
   repeated TaskLiabilityReservationState task_liability_reservations = 27;
   repeated ServiceKeyResponsibilityState service_key_responsibilities = 28;
   BuilderSetPendingReplacementState pending_builder_set_replacement = 29;
+  // Per-period order quota rows of Workers (worker_quota_period_value_bps_of_bond).
+  repeated WorkerQuotaState worker_quotas = 110;
 
   // Jail and tombstone facts are operator-global counters on ServiceBondState
   // (status / jail_count / normal_action_count_since_jail) per

@@ -155,6 +155,9 @@ func (d *Dispatcher) HandleDispatchAccept(ctx context.Context, from dispatchstre
 	if current, ok := d.cfg.Handraises.Current(a.Operator); ok {
 		d.slots.accepted(a.Operator, current)
 	}
+	if d.cfg.Quota != nil {
+		d.cfg.Quota.Extend(stateKey(st.SessionID, st.Sequence), quotaRecordHold)
+	}
 	d.recordOutcome(a, opsmetrics.OutcomeAccepted)
 	if !o.ticketAt.IsZero() {
 		d.cfg.Metrics.ObserveStage(opsmetrics.StageTicketToAccept, d.clock.Now().Sub(o.ticketAt))
@@ -211,11 +214,25 @@ func (d *Dispatcher) HandleDispatchReject(ctx context.Context, from dispatchstre
 		outcome = opsmetrics.OutcomeRejected
 	}
 	d.cfg.Metrics.Inc(opsmetrics.CounterSkips, opsmetrics.SkipRejected)
-	d.recordOutcome(a, outcome)
+	if m.GetRejectReason() == taskv1.DispatchRejectReasonV1_DISPATCH_REJECT_REASON_V1_NO_CAPACITY && d.overExemptBudget(o.signed.GetOrder()) {
+		// Not a ticket the reject rate is measured on: the order asks for more than every Worker
+		// is expected to serve, so refusing it says nothing about the Worker.
+		d.cfg.Metrics.WorkerOutcome(a.Operator, a.Tier, opsmetrics.OutcomeRejectedOverExemptBudget)
+	} else {
+		d.recordOutcome(a, outcome)
+	}
 	out := d.step(ctx, o)
 	o.mu.Unlock()
 	d.finish(ctx, out)
 	return nil
+}
+
+// overExemptBudget reports an order above this Builder's reject-rate exemption bounds: its output
+// budget or its input size is more than every Worker of the network is expected to serve. Both are
+// fields of the user-signed order, so the Worker cannot claim the exemption for another order.
+func (d *Dispatcher) overExemptBudget(o *taskv1.TaskOrderV3) bool {
+	return d.cfg.Dispatch.RejectRateExempt(o.GetModelId(), o.GetProfileVersion()).
+		Exempts(uint64(o.GetGenerationParams().GetMaxOutputTokens()), o.GetInputSizeBytes())
 }
 
 // HandleDispatchInputRequest serves the order's input to the Worker that won it: the request must

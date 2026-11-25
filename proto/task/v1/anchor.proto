@@ -20,6 +20,23 @@ enum AnchorVerdictV1 {
   // The auditor could not judge the position (missing material, proof not
   // established); attributable to the verifier, never to the Worker.
   ANCHOR_VERDICT_V1_NO_VERDICT = 3;
+  // Validator vote only; never the verdict of a position or of a task. The
+  // validator could not obtain the opening, proof or manifest the Worker
+  // recorded, from the location the Worker recorded, by the time it voted.
+  //
+  // The vote is accepted only in the second half of the verdict window (from
+  // proof_deadline_height + (verdict_deadline_height - proof_deadline_height) / 2)
+  // and a validator may replace it with PASS or REJECT while the window is
+  // open. It is tallied in unavailable_power and never closes an audit early.
+  // At verdict_deadline_height, on the votes as they then stand and at the
+  // validators' current power, an audit that neither PASS nor REJECT decided
+  // ends:
+  //   - NO_VERDICT if PASS holds more than 1/3 (someone obtained and verified
+  //     the material, so it was obtainable);
+  //   - otherwise REJECT with source MATERIAL_UNAVAILABLE if REJECT and
+  //     UNAVAILABLE together hold >= 2/3;
+  //   - otherwise NO_VERDICT.
+  ANCHOR_VERDICT_V1_UNAVAILABLE = 4;
 }
 
 // AnchorPositionVerdictV1 is the auditor's verdict on one sampled position.
@@ -45,6 +62,23 @@ enum AnchorResultSourceV1 {
   // The receipt's commitments could not be sampled (malformed token commitment);
   // the audit is final REJECT at sampling (ADR-0040 v6).
   ANCHOR_RESULT_SOURCE_V1_INVALID_COMMITMENT = 4;
+  // verdict_deadline_height passed, PASS held at most 1/3 and REJECT together
+  // with UNAVAILABLE held >= 2/3 of the bonded voting power: the Worker
+  // recorded an opening and a proof but did not keep sound material
+  // retrievable. Final REJECT, settled as the timeout fault (the smaller slash,
+  // no jail); the task is not paid.
+  // Value 5 is left to the content-track contract.
+  ANCHOR_RESULT_SOURCE_V1_MATERIAL_UNAVAILABLE = 6;
+  // Verifier panel (anchor_audit_mode 2): two members of a panel round cast
+  // the same PASS or REJECT vote and the publication period ended without a
+  // re-audit overturning it.
+  ANCHOR_RESULT_SOURCE_V1_VERIFIER_PANEL = 7;
+  // Verifier panel: a paid re-audit round overturned the provisional verdict.
+  ANCHOR_RESULT_SOURCE_V1_REAUDIT = 8;
+  // Verifier panel: the Worker timed out and submitted nothing acceptable
+  // before late_deadline_height. Final REJECT, settled as the timeout fault
+  // (no jail); the Worker's batch of the period is forfeited.
+  ANCHOR_RESULT_SOURCE_V1_LATE_EXPIRED = 9;
 }
 
 // AnchorVoteTallyV1 is the running validator-vote tally of one anchor audit, in
@@ -60,6 +94,8 @@ message AnchorVoteTallyV1 {
   uint64 total_power = 4;
   // vote_count is the number of recorded votes.
   uint32 vote_count = 5;
+  // unavailable_power is the summed voting power of UNAVAILABLE votes.
+  uint64 unavailable_power = 6;
 }
 
 // AnchorValidatorVoteState is one bonded validator's vote on a Worker's anchor proof.
@@ -72,6 +108,85 @@ message AnchorValidatorVoteState {
   uint64 height = 6;
   uint64 power = 7;
   repeated AnchorPositionVerdictV1 verdicts = 8;
+}
+
+// AnchorPanelRoundKindV1 says why a panel round was opened.
+enum AnchorPanelRoundKindV1 {
+  // ANCHOR_PANEL_ROUND_KIND_V1_UNSPECIFIED identifies the corresponding protocol value.
+  ANCHOR_PANEL_ROUND_KIND_V1_UNSPECIFIED = 0;
+  // First round of an attempt, opened when the Worker's proof is recorded.
+  ANCHOR_PANEL_ROUND_KIND_V1_INITIAL = 1;
+  // Automatic second round of the same attempt, opened when the first ended
+  // without two equal votes.
+  ANCHOR_PANEL_ROUND_KIND_V1_RETRY = 2;
+  // Round paid for by MsgRequestAnchorReaudit during the publication period.
+  ANCHOR_PANEL_ROUND_KIND_V1_REAUDIT = 3;
+}
+
+// AnchorLateStateV1 tracks a selected audit whose Worker timed out.
+enum AnchorLateStateV1 {
+  // No timeout was recorded for the audit.
+  ANCHOR_LATE_STATE_V1_UNSPECIFIED = 0;
+  // A timeout was recorded; the Worker may still submit until
+  // late_deadline_height. Dispatch to the Worker is paused and its batch of the
+  // task's period is suspended.
+  ANCHOR_LATE_STATE_V1_AWAITING_LATE = 1;
+  // The Worker recorded its opening and proof after the timeout; a panel is
+  // auditing them.
+  ANCHOR_LATE_STATE_V1_LATE_SUBMITTED = 2;
+  // late_deadline_height passed without an accepted late submission.
+  ANCHOR_LATE_STATE_V1_LATE_EXPIRED = 3;
+}
+
+// AnchorTimeoutReasonV1 names what made a selected audit a Worker timeout.
+enum AnchorTimeoutReasonV1 {
+  // ANCHOR_TIMEOUT_REASON_V1_UNSPECIFIED identifies the corresponding protocol value.
+  ANCHOR_TIMEOUT_REASON_V1_UNSPECIFIED = 0;
+  // opening_deadline_height passed without a recorded opening.
+  ANCHOR_TIMEOUT_REASON_V1_OPENING_DEADLINE = 1;
+  // proof_deadline_height passed without a recorded proof.
+  ANCHOR_TIMEOUT_REASON_V1_PROOF_DEADLINE = 2;
+  // A panel round closed with two UNAVAILABLE votes.
+  ANCHOR_TIMEOUT_REASON_V1_PANEL_UNAVAILABLE = 3;
+  // The automatic retry round also closed without two equal votes.
+  ANCHOR_TIMEOUT_REASON_V1_PANEL_INCONCLUSIVE = 4;
+}
+
+// AnchorPanelVoteState is one panel member's vote in one round.
+message AnchorPanelVoteState {
+  string verifier_operator_address = 1;
+  // PASS, REJECT or UNAVAILABLE.
+  AnchorVerdictV1 verdict = 2;
+  uint64 height = 3;
+  repeated AnchorPositionVerdictV1 verdicts = 4;
+}
+
+// AnchorPanelRoundState is one round of three Verifiers drawn for a selected
+// audit. panel_round increases by one with every round opened for the task and
+// is never reused, so a hand-raise or a vote names exactly one round.
+message AnchorPanelRoundState {
+  uint32 panel_round = 1;
+  AnchorPanelRoundKindV1 kind = 2;
+  // 0 for the on-time attempt, 1 for the attempt after a late submission.
+  uint32 attempt = 3;
+  // Height the Verifier window of this round was opened at.
+  uint64 open_height = 4;
+  // Height the members were drawn at; zero until drawn.
+  uint64 assignment_height = 5;
+  // Last height at which a member's vote is accepted; zero until drawn.
+  uint64 vote_deadline_height = 6;
+  // Drawn operators in draw order.
+  repeated string members = 7;
+  repeated AnchorPanelVoteState votes = 8;
+  // PASS, REJECT or UNAVAILABLE when two members agreed; NO_VERDICT when the
+  // round closed without two equal votes or without a full panel; UNSPECIFIED
+  // while the round is open.
+  AnchorVerdictV1 result = 9;
+  uint64 closed_height = 10;
+  // Commitment over the drawn members, as VerifierAssignmentState carries it.
+  bytes selected_verifiers_hash = 11;
+  // Fee paid to the members of this round who voted, in fee-denom atomic units.
+  string panel_fee = 12;
 }
 
 // AnchorAuditState is the per-task record of the anchor commitment audit
@@ -91,7 +206,7 @@ message AnchorAuditState {
   // Opening material hash (sha256 of the exact bytes) once the Worker opened.
   bytes opening_hash = 6;
   uint64 opening_size_bytes = 7;
-  // Where the material can be fetched; devnet accepts file:// and http(s)://.
+  // Where the material can be fetched: an http:// or https:// URL.
   string opening_uri = 8;
   uint64 opening_height = 9;
   string result_verifier_operator_address = 10;
@@ -144,6 +259,46 @@ message AnchorAuditState {
   bytes epoch_manifest_hash = 33;
   // epoch_manifest_uri locates the epoch manifest in DA.
   string epoch_manifest_uri = 34;
+  // da_uri_prefix is the Worker's data-availability location as its service
+  // descriptor published it (endpoint kind ANCHOR_DA) when the task was
+  // sampled; empty when the Worker had published none. When set, every
+  // location the Worker records for this audit must start with it, so a
+  // Worker cannot choose where its material lives after learning that it was
+  // sampled, and validators know in advance where a Worker's material is
+  // served from. Fields 35-59 are left to the content-track contract.
+  string da_uri_prefix = 60;
+
+  // Fields 61-75: Verifier-panel audit (VerificationParamsV1.anchor_audit_mode 2).
+  // All zero on audits of the validator-vote modes.
+
+  // audit_mode is anchor_audit_mode as frozen into the task: 2 = Verifier panel.
+  uint32 audit_mode = 61;
+  // panel_round is the number of the latest panel round opened for the task;
+  // zero while none was opened.
+  uint32 panel_round = 62;
+  // panel_rounds lists every round opened for the task, ascending.
+  repeated AnchorPanelRoundState panel_rounds = 63;
+  // provisional_verdict is PASS or REJECT once a round concluded; nothing is
+  // paid or slashed on it before final_height.
+  AnchorVerdictV1 provisional_verdict = 64;
+  uint64 provisional_height = 65;
+  // Until this height anyone may request one re-audit.
+  uint64 publication_end_height = 66;
+  bool reaudit_requested = 67;
+  string reaudit_opener = 68;
+  // Escrowed re-audit fee in fee-denom atomic units; empty when none.
+  string reaudit_fee = 69;
+  AnchorLateStateV1 late_state = 70;
+  // Last height at which a late opening or proof is accepted; fixed at the
+  // first timeout of the task.
+  uint64 late_deadline_height = 71;
+  uint64 timeout_recorded_height = 72;
+  // Settlement period of the Worker batch the task belongs to.
+  uint64 settlement_period = 73;
+  AnchorTimeoutReasonV1 timeout_reason = 74;
+  // Height at which the verdict became final (after the publication period or
+  // the re-audit); zero before.
+  uint64 final_height = 75;
 }
 
 // AnchorVoteKeyState delegates anchor votes of one validator to a hot vote address,
@@ -220,7 +375,10 @@ message MsgSubmitAnchorAuditResultResponse {
 // MsgSubmitAnchorValidatorVote is a bonded consensus validator's verdict on the Worker's
 // recorded anchor proof (ADR-0040 v4). The signer must be the validator operator's account
 // or the vote address it registered with MsgRegisterAnchorVoteKey (v6).
-// The verdict is final once one side holds >= 2/3 of the last bonded voting power.
+// The verdict is final once PASS or REJECT holds >= 2/3 of the last bonded voting power.
+// UNAVAILABLE is accepted only in the second half of the verdict window, is only
+// counted at verdict_deadline_height (see ANCHOR_VERDICT_V1_UNAVAILABLE), and a
+// validator may replace its own UNAVAILABLE vote with PASS or REJECT before then.
 message MsgSubmitAnchorValidatorVote {
   bytes task_id = 1;
   bytes opening_hash = 2;

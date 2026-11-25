@@ -48,6 +48,8 @@ service Query {
   rpc CortexNode(QueryCortexNodeRequest) returns (QueryCortexNodeResponse);
   // ServiceBond returns the node's single service bond and reserved liability.
   rpc ServiceBond(QueryServiceBondRequest) returns (QueryServiceBondResponse);
+  // WorkerQuota returns the order quota of one Worker for the current settlement period.
+  rpc WorkerQuota(QueryWorkerQuotaRequest) returns (QueryWorkerQuotaResponse);
   // ServiceUnbondings pages one operator's unbonding entries by status.
   rpc ServiceUnbondings(QueryServiceUnbondingsRequest) returns (QueryServiceUnbondingsResponse);
   // CurrentServiceKey returns the sole current key binding for one operator,

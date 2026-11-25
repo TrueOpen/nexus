@@ -392,6 +392,12 @@ func (s *service) validateOpenTaskHeader(
 	}
 	var taskHash [32]byte
 	copy(taskHash[:], rawTaskHash)
+	// The input token count is a statement the user signs beside the order; it is forwarded to
+	// the chain with the order's dispatch record. Only its form and its binding to this order are
+	// checked here: the chain verifies the signature.
+	if order.InputTokensAttestation, err = checkInputTokensAttestation(header.GetInputTokensAttestation(), &signed, rawTaskHash); err != nil {
+		return types.Order{}, taskdata.UploadHeader{}, orderAdmission{}, malformed("%v", err)
+	}
 	body, err := sdkauth.OpenTaskBody(taskHash, header.GetSessionId(), order.OrderSequence, order.User,
 		header.GetInputSizeBytes(), header.GetInputHash(), header.GetInputMediaType(), header.GetIdempotencyKey())
 	if err != nil {

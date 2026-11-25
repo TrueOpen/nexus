@@ -532,6 +532,10 @@ func (r *fakeRecorder) recorded() []*Bundle {
 // ---- environment ----
 
 type env struct {
+	// rejectReason, when set, replaces NO_CAPACITY in the rejects the env signs.
+	rejectReason taskv1.DispatchRejectReasonV1
+	// orderTerms, when set, edits each order before it is signed and marshalled.
+	orderTerms func(*taskv1.TaskOrderV3)
 	t          *testing.T
 	store      kv.Store
 	ledger     *inflight.Ledger
@@ -697,6 +701,9 @@ func (e *env) orderAt(sessionID string, seq uint64, version byte, esh uint64) ty
 		},
 		UserSignature: bytes.Repeat([]byte{version}, 65),
 	}
+	if e.orderTerms != nil {
+		e.orderTerms(signed.Order)
+	}
 	raw, err := proto.Marshal(signed)
 	if err != nil {
 		e.t.Fatal(err)
@@ -769,6 +776,9 @@ func (e *env) rejectMsg(ticket *taskv1.DispatchTicketV1, hash [32]byte) (*taskv1
 		SchemaVersion: 1, ChainId: testChainID, TaskId: ticket.GetTaskId(), TaskHash: ticket.GetTaskHash(),
 		DispatchTicketHash: hash[:], Member: proto.Clone(ticket.GetTarget()).(*taskv1.CandidateMemberRefV1), ServiceAuthorizationNonce: 3,
 		RejectReason: taskv1.DispatchRejectReasonV1_DISPATCH_REJECT_REASON_V1_NO_CAPACITY,
+	}
+	if e.rejectReason != 0 {
+		m.RejectReason = e.rejectReason
 	}
 	raw, digest, err := signMessage(cortexKey(e.t), "task.v1.DispatchRejectV1", m, func(sig []byte) { m.ServiceSignature = sig })
 	if err != nil {

@@ -93,5 +93,6 @@ func (d *Dispatcher) bundle(st *orderState, e inflight.Entry, deadline uint64) (
 			return nil, fmt.Errorf("stored dispatch entry part: %w", err)
 		}
 	}
-	return &Bundle{SessionID: st.SessionID, Sequence: st.Sequence, TaskID: st.TaskID, Deadline: deadline, DeadlineBlocks: e.DeadlineBlocks, Entry: entry}, nil
+	return &Bundle{SessionID: st.SessionID, Sequence: st.Sequence, TaskID: st.TaskID, Deadline: deadline, DeadlineBlocks: e.DeadlineBlocks, Entry: entry,
+		InputTokens: st.InputTokens}, nil
 }
