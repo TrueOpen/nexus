@@ -691,6 +691,8 @@ func (d *Dispatcher) onTimeout(key string, hash [32]byte) {
 		o.mu.Unlock()
 		return
 	}
+	d.log.Info("dispatch ticket timed out", append([]any{"session_id", o.st.SessionID, "order_sequence", o.st.Sequence,
+		"operator", a.Operator}, d.answerTiming(o, a, true)...)...)
 	d.timeoutLocked(o, a, true)
 	out := d.step(context.Background(), o)
 	o.mu.Unlock()
@@ -708,8 +710,6 @@ func (d *Dispatcher) timeoutLocked(o *order, a *attemptState, received bool) {
 	if received {
 		d.cfg.Metrics.Inc(opsmetrics.CounterSkips, opsmetrics.SkipTimeout)
 		d.recordOutcome(a, opsmetrics.OutcomeTimeout)
-		d.log.Info("dispatch ticket timed out", append([]any{"session_id", o.st.SessionID, "order_sequence", o.st.Sequence,
-			"operator", a.Operator}, d.answerTiming(o, a, true)...)...)
 		return
 	}
 	d.cfg.Metrics.Inc(opsmetrics.CounterSkips, opsmetrics.SkipUnreachable)

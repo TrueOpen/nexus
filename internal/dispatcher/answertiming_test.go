@@ -33,8 +33,17 @@ func logLine(t *testing.T, logs *bytes.Buffer, msg string) string {
 
 func wantAttrs(t *testing.T, line string, attrs ...string) {
 	t.Helper()
+	fields := strings.Fields(line)
 	for _, a := range attrs {
-		if !strings.Contains(line, " "+a) {
+		found := false
+		for _, f := range fields {
+			// An attribute given without a value ("rank=") matches any value.
+			if f == a || (strings.HasSuffix(a, "=") && strings.HasPrefix(f, a)) {
+				found = true
+				break
+			}
+		}
+		if !found {
 			t.Errorf("%q missing from %s", a, line)
 		}
 	}
@@ -49,11 +58,21 @@ func TestAnswersAreLoggedWithTheirTiming(t *testing.T) {
 	s := e.session(0xaa, 0)
 	e.dispatch(e.order(s, 0, 1)) // drawn op7, op1, op3
 	e.clock.advance(70 * time.Millisecond)
+	_, rejected, rejectedHash := e.lastOffer()
 	if op := e.reject(); op != op7 {
 		t.Fatalf("rejected by %s", op)
 	}
 	wantAttrs(t, logLine(t, logs, "dispatch rejected"),
 		"operator="+op7, "free_slot=true", "tier=1", "answer_ms=70", "window_ms=300", "left_ms=230", "rtt_ms=30")
+	// An accept of the ticket it rejected is closed, and not logged as a late answer: only a
+	// ticket that timed out is.
+	m, from := e.acceptMsg(rejected, rejectedHash)
+	if err := e.d.HandleDispatchAccept(context.Background(), from, m); !errors.Is(err, ErrTicketClosed) {
+		t.Fatalf("accept of a rejected ticket = %v", err)
+	}
+	if strings.Contains(logs.String(), "dispatch accept of a timed-out ticket") {
+		t.Fatalf("an accept of a rejected ticket is logged as late:\n%s", logs)
+	}
 	e.clock.advance(180 * time.Millisecond)
 	if op, _ := e.accept(); op != op1 {
 		t.Fatalf("accepted by %s", op)
@@ -108,5 +127,26 @@ func TestAnswerAfterARestartHasNoIssueTime(t *testing.T) {
 	wantAttrs(t, line, "left_ms=400")
 	if strings.Contains(line, "answer_ms=") || strings.Contains(line, "window_ms=") {
 		t.Errorf("an unknown issue time is logged: %s", line)
+	}
+}
+
+// An accept that comes past the deadline before the timer fires is logged as such, apart from a
+// ticket the Worker never answered.
+func TestAcceptPastTheDeadlineBeforeTheTimer(t *testing.T) {
+	e, logs := newLoggedEnv(t)
+	s := e.session(0xaa, 0)
+	e.dispatch(e.order(s, 0, 1))
+	op, ticket, hash := e.lastOffer()
+	e.clock.mu.Lock()
+	e.clock.now = e.clock.now.Add(520 * time.Millisecond) // past the 500 ms window; no timer fired
+	e.clock.mu.Unlock()
+	m, from := e.acceptMsg(ticket, hash)
+	if err := e.d.HandleDispatchAccept(context.Background(), from, m); !errors.Is(err, ErrTicketClosed) {
+		t.Fatalf("accept past the deadline = %v", err)
+	}
+	wantAttrs(t, logLine(t, logs, "dispatch accept after its deadline"),
+		"operator="+op, "answer_ms=520", "window_ms=500", "left_ms=-20")
+	if strings.Contains(logs.String(), "dispatch ticket timed out") {
+		t.Fatalf("the accept is logged as an unanswered ticket:\n%s", logs)
 	}
 }

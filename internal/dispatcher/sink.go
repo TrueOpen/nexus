@@ -110,6 +110,10 @@ func (d *Dispatcher) HandleDispatchAccept(ctx context.Context, from dispatchstre
 	}
 	timing := d.answerTiming(o, a, true)
 	if now := uint64(d.clock.Now().UnixMilli()); now > a.DeadlineMs {
+		// The accept came past the deadline before the timer fired: a near miss, logged apart
+		// from a ticket the Worker never answered.
+		d.log.Info("dispatch accept after its deadline", append([]any{"session_id", st.SessionID, "order_sequence", st.Sequence,
+			"operator", a.Operator}, timing...)...)
 		d.timeoutLocked(o, a, true)
 		out := d.step(ctx, o)
 		o.mu.Unlock()
