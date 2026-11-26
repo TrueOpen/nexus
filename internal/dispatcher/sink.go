@@ -99,9 +99,16 @@ func (d *Dispatcher) HandleDispatchAccept(ctx context.Context, from dispatchstre
 	}
 	st := o.st
 	if st.Phase != phaseDispatching || st.pending() != a {
+		if a.Outcome == outcomeTimeout && a.Sent {
+			// How late a Worker answers a ticket that already timed out tells how far its window
+			// fell short.
+			d.log.Info("dispatch accept of a timed-out ticket", append([]any{"session_id", st.SessionID, "order_sequence", st.Sequence,
+				"operator", a.Operator}, d.answerTiming(o, a, false)...)...)
+		}
 		o.mu.Unlock()
 		return fmt.Errorf("%w: ticket %x is not out", ErrTicketClosed, a.Hash)
 	}
+	timing := d.answerTiming(o, a, true)
 	if now := uint64(d.clock.Now().UnixMilli()); now > a.DeadlineMs {
 		d.timeoutLocked(o, a, true)
 		out := d.step(ctx, o)
@@ -174,7 +181,7 @@ func (d *Dispatcher) HandleDispatchAccept(ctx context.Context, from dispatchstre
 		d.cfg.Observer.DispatchAccepted(out.session, out.taskID, out.ticket, out.worker)
 		return nil
 	}
-	d.log.Info("dispatch accepted", "session_id", out.session, "order_sequence", out.sequence, "worker", out.worker, "rank", a.Rank)
+	d.log.Info("dispatch accepted", append([]any{"session_id", out.session, "order_sequence", out.sequence, "worker", out.worker}, timing...)...)
 	d.accepted(out.accepted)
 	d.finishLater(out)
 	return nil
@@ -194,6 +201,7 @@ func (d *Dispatcher) HandleDispatchReject(ctx context.Context, from dispatchstre
 		o.mu.Unlock()
 		return fmt.Errorf("%w: ticket %x is not out", ErrTicketClosed, a.Hash)
 	}
+	timing := d.answerTiming(o, a, true)
 	prev := cloneState(st)
 	a.Outcome, a.Reject, a.RejectDigest = outcomeRejected, from.Raw, append([]byte(nil), from.Digest[:]...)
 	st.Skips++
@@ -212,6 +220,8 @@ func (d *Dispatcher) HandleDispatchReject(ctx context.Context, from dispatchstre
 	}
 	d.cfg.Metrics.Inc(opsmetrics.CounterSkips, opsmetrics.SkipRejected)
 	d.recordOutcome(a, outcome)
+	d.log.Info("dispatch rejected", append([]any{"session_id", st.SessionID, "order_sequence", st.Sequence, "operator", a.Operator,
+		"free_slot", outcome == opsmetrics.OutcomeRejected}, timing...)...)
 	out := d.step(ctx, o)
 	o.mu.Unlock()
 	d.finish(ctx, out)

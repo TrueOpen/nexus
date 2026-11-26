@@ -708,10 +708,30 @@ func (d *Dispatcher) timeoutLocked(o *order, a *attemptState, received bool) {
 	if received {
 		d.cfg.Metrics.Inc(opsmetrics.CounterSkips, opsmetrics.SkipTimeout)
 		d.recordOutcome(a, opsmetrics.OutcomeTimeout)
+		d.log.Info("dispatch ticket timed out", append([]any{"session_id", o.st.SessionID, "order_sequence", o.st.Sequence,
+			"operator", a.Operator}, d.answerTiming(o, a, true)...)...)
 		return
 	}
 	d.cfg.Metrics.Inc(opsmetrics.CounterSkips, opsmetrics.SkipUnreachable)
 	d.cfg.Metrics.WorkerOutcome(a.Operator, a.Tier, opsmetrics.OutcomeUnsent)
+}
+
+// answerTiming is the timing of an answer to a ticket (or of its timeout) for the log, so the
+// accept windows can be sized from what Workers actually take: left_ms is how much of the
+// ticket's accept window was left (negative once past its deadline), and rtt_ms the Worker's
+// measured RTT now. For the ticket out (current), answer_ms is how long after its issue the
+// answer came and window_ms the window it was given; both are left out when the issue time is
+// not known, for a ticket issued before a restart. Caller holds o.mu.
+func (d *Dispatcher) answerTiming(o *order, a *attemptState, current bool) []any {
+	now := d.clock.Now()
+	attrs := []any{"rank", a.Rank, "tier", a.Tier, "left_ms", int64(a.DeadlineMs) - now.UnixMilli()}
+	if current && !o.ticketAt.IsZero() {
+		attrs = append(attrs, "answer_ms", now.Sub(o.ticketAt).Milliseconds(), "window_ms", int64(a.DeadlineMs)-o.ticketAt.UnixMilli())
+	}
+	if rtt, ok := d.cfg.Streams.RTT(a.Operator); ok {
+		attrs = append(attrs, "rtt_ms", rtt.Milliseconds())
+	}
+	return attrs
 }
 
 // recordOutcome feeds the Worker's reject rate and its statistics with a ticket it received:
